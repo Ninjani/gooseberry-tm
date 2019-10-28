@@ -2,6 +2,7 @@ use std::io;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+
 use termion::event::Key;
 use termion::input::TermRead;
 
@@ -9,6 +10,7 @@ pub enum Event<I> {
     Input(I),
     Tick,
 }
+
 
 /// A small event handler that wrap termion input and tick events. Each event
 /// type is handled in its own thread and returned to a common `Receiver`

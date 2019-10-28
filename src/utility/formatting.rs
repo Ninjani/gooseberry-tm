@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use syntect::{
     easy::HighlightLines,
     highlighting::{FontStyle, Style as SyntectStyle, Theme, ThemeSet},
@@ -8,8 +9,6 @@ use tui::{
     style::{Color as TuiColor, Modifier, Style as TuiStyle},
     widgets::Text,
 };
-use chrono::{Utc, DateTime};
-
 
 pub const HEADER_MARK: &'static str = "---";
 pub const DONE: char = '\u{2611}';
@@ -23,7 +22,6 @@ lazy_static! {
     static ref MD_SYNTAX: &'static SyntaxReference =
         SYNTAX_SET.find_syntax_by_extension("markdown").unwrap();
 }
-
 
 fn syntect_to_tui_modifier(syntect_modifier: FontStyle) -> Modifier {
     let f_bui = FontStyle::BOLD | FontStyle::UNDERLINE | FontStyle::ITALIC;
@@ -61,7 +59,6 @@ pub fn markdown_to_styled_texts(markdown_text: &str) -> Markdown {
     styled_texts
 }
 
-
 fn dim(markdown: Markdown) -> Markdown {
     markdown
         .into_iter()
@@ -92,23 +89,49 @@ fn syntect_to_tui_style(syntect_style: SyntectStyle) -> TuiStyle {
 }
 
 fn style_title(title: &str, mark: Option<char>) -> Text {
-    Text::styled(format!("{} {}", mark.unwrap_or(' '), title),
-                 TuiStyle::default().fg(TuiColor::LightCyan))
+    Text::styled(
+        format!("{} {}", mark.unwrap_or(' '), title),
+        TuiStyle::default().fg(TuiColor::LightCyan),
+    )
 }
 
 fn style_datetime(datetime: &DateTime<Utc>) -> Text {
-    Text::styled(format!("{}", datetime.format("%v %r")),TuiStyle::default().fg(TuiColor::Red).modifier(Modifier::DIM))
+    Text::styled(
+        format!("{}", datetime.format("%v %r")),
+        TuiStyle::default()
+            .fg(TuiColor::Red)
+            .modifier(Modifier::DIM),
+    )
 }
 
 fn style_tags(tags: &[u64]) -> Text {
-    Text::styled(tags.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "),
-                 TuiStyle::default().fg(TuiColor::Gray).modifier(Modifier::DIM))
+    Text::styled(
+        tags.iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        TuiStyle::default()
+            .fg(TuiColor::Gray)
+            .modifier(Modifier::DIM),
+    )
 }
 
-pub fn style_short<'a>(title: &'a str, mark: Option<char>, datetime: &'a DateTime<Utc>, tags: &'a [u64]) -> Markdown<'a> {
-    vec![style_title(title, mark), style_datetime(datetime), style_tags(tags)]
+pub fn style_short<'a>(
+    title: &'a str,
+    mark: Option<char>,
+    datetime: &'a DateTime<Utc>,
+    tags: &'a [u64],
+) -> Markdown<'a> {
+    vec![
+        style_title(title, mark),
+        style_datetime(datetime),
+        style_tags(tags),
+    ]
 }
 
 pub fn style_people(people: &[String]) -> Text {
-    Text::styled(people.join(", "), TuiStyle::default().modifier(Modifier::BOLD))
+    Text::styled(
+        people.join(", "),
+        TuiStyle::default().modifier(Modifier::BOLD),
+    )
 }

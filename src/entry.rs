@@ -1,12 +1,14 @@
-use crate::errors::Sorry;
-use crate::utility;
+use std::collections::HashMap;
+use std::iter::Peekable;
+use std::str::FromStr;
+
 use anyhow::Error;
 use chrono::{Date, DateTime, Utc};
-use path_abs::{PathFile};
-use std::collections::HashMap;
-use std::str::FromStr;
+use path_abs::PathFile;
 use tui::widgets::Text;
-use std::iter::Peekable;
+
+use crate::errors::Sorry;
+use crate::utility;
 
 pub enum GooseberryEntry {
     Task(TaskEntry),
@@ -28,13 +30,12 @@ impl GooseberryEntry {
             GooseberryEntryType::Journal => Ok(GooseberryEntry::Journal(
                 JournalEntry::from_header_lines(header, lines)?,
             )),
-            GooseberryEntryType::Event => Ok(GooseberryEntry::Event(EventEntry::from_header_lines(
-                header, lines,
-            )?)),
+            GooseberryEntryType::Event => Ok(GooseberryEntry::Event(
+                EventEntry::from_header_lines(header, lines)?,
+            )),
         }
     }
 }
-
 
 pub trait GooseberryEntryTrait: Sized {
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error>;
@@ -131,11 +132,9 @@ fn get_id_datetime_tags(
 ) -> Result<(u64, DateTime<Utc>, Vec<u64>), Error> {
     let id = header
         .get("ID")
-        .ok_or(
-            Sorry::MissingHeaderElement {
-                element: "ID".into(),
-            }
-        )?
+        .ok_or(Sorry::MissingHeaderElement {
+            element: "ID".into(),
+        })?
         .parse::<u64>()?;
     let datetime = header
         .get("DateTime")
@@ -181,12 +180,18 @@ impl TaskEntry {
 impl GooseberryEntryTrait for TaskEntry {
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
-        let task = header.get("Task").ok_or(Sorry::MissingHeaderElement {
-            element: "Task".into(),
-        })?.to_owned();
-        let done = header.get("Done").ok_or(Sorry::MissingHeaderElement {
-            element: "Done".into(),
-        })?.parse::<bool>()?;
+        let task = header
+            .get("Task")
+            .ok_or(Sorry::MissingHeaderElement {
+                element: "Task".into(),
+            })?
+            .to_owned();
+        let done = header
+            .get("Done")
+            .ok_or(Sorry::MissingHeaderElement {
+                element: "Done".into(),
+            })?
+            .parse::<bool>()?;
         Ok(TaskEntry {
             id,
             task,
@@ -230,12 +235,19 @@ impl GooseberryEntryFormat for TaskEntry {
         } else {
             utility::formatting::NOT_DONE
         };
-        Ok(utility::formatting::style_short(&self.task, Some(mark), &self.datetime, &self.tags))
+        Ok(utility::formatting::style_short(
+            &self.task,
+            Some(mark),
+            &self.datetime,
+            &self.tags,
+        ))
     }
 
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
         let mut styled_text = self.to_tui_short()?;
-        styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(&self.description));
+        styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(
+            &self.description,
+        ));
         Ok(styled_text)
     }
 }
@@ -280,14 +292,23 @@ impl GooseberryEntryTrait for JournalEntry {
 
 impl GooseberryEntryFormat for JournalEntry {
     fn to_file(&self, filename: PathFile) -> Result<(), Error> {
-        let header = format!("{}\n{}\n{}\n", utility::formatting::HEADER_MARK,
-                             self.format_id_datetime_tags(), utility::formatting::HEADER_MARK);
+        let header = format!(
+            "{}\n{}\n{}\n",
+            utility::formatting::HEADER_MARK,
+            self.format_id_datetime_tags(),
+            utility::formatting::HEADER_MARK
+        );
         filename.write_str(&format!("{}{}", header, self.description))?;
         Ok(())
     }
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
-        Ok(utility::formatting::style_short(&self.description, None, &self.datetime, &self.tags))
+        Ok(utility::formatting::style_short(
+            &self.description,
+            None,
+            &self.datetime,
+            &self.tags,
+        ))
     }
 
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
@@ -308,9 +329,12 @@ pub struct ResearchEntry {
 impl GooseberryEntryTrait for ResearchEntry {
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
-        let title = header.get("Title").ok_or(Sorry::MissingHeaderElement {
-            element: "Title".into(),
-        })?.to_owned();
+        let title = header
+            .get("Title")
+            .ok_or(Sorry::MissingHeaderElement {
+                element: "Title".into(),
+            })?
+            .to_owned();
         Ok(ResearchEntry {
             id,
             title,
@@ -347,7 +371,12 @@ impl GooseberryEntryFormat for ResearchEntry {
     }
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
-        Ok(utility::formatting::style_short(&self.title, None, &self.datetime, &self.tags))
+        Ok(utility::formatting::style_short(
+            &self.title,
+            None,
+            &self.datetime,
+            &self.tags,
+        ))
     }
 
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
@@ -376,9 +405,12 @@ impl EventEntry {
 impl GooseberryEntryTrait for EventEntry {
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
-        let title = header.get("Title").ok_or(Sorry::MissingHeaderElement {
-            element: "Title".into(),
-        })?.to_owned();
+        let title = header
+            .get("Title")
+            .ok_or(Sorry::MissingHeaderElement {
+                element: "Title".into(),
+            })?
+            .to_owned();
         let people = header
             .get("People")
             .ok_or(Sorry::MissingHeaderElement {
@@ -425,7 +457,12 @@ impl GooseberryEntryFormat for EventEntry {
     }
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
-        Ok(utility::formatting::style_short(&self.title, None, &self.datetime, &self.tags))
+        Ok(utility::formatting::style_short(
+            &self.title,
+            None,
+            &self.datetime,
+            &self.tags,
+        ))
     }
 
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {

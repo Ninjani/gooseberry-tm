@@ -1,6 +1,7 @@
-use crate::entry::GooseberryEntry;
 use anyhow::Error;
 use path_abs::{PathDir, PathFile, PathOps};
+
+use crate::entry::GooseberryEntry;
 
 pub struct GooseberryTabs {
     task_tab: GooseberryTab,
@@ -13,7 +14,6 @@ pub struct GooseberryTab {
     ids: Vec<u64>,
     entries: Vec<GooseberryEntry>,
 }
-
 
 impl GooseberryTab {
     pub fn from_ids(ids: Vec<u64>, folder: PathDir) -> Result<Self, Error> {

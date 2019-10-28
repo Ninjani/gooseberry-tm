@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 #[macro_use]
 extern crate lazy_static;
-pub mod entry;
-pub mod errors;
-pub mod utility;
-pub mod tabs;
+
 use anyhow::Error;
 
+pub mod entry;
+pub mod errors;
+pub mod tabs;
+pub mod utility;
 
 fn main() -> Result<(), Error> {
     Ok(())
