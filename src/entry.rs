@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-use std::iter::Peekable;
-use std::str::FromStr;
+use std::{collections::HashMap, iter::Peekable, str::FromStr};
 
 use anyhow::Error;
-use chrono::{Date, DateTime, Utc};
+use chrono::{Date, DateTime, NaiveDateTime, Utc};
 use path_abs::PathFile;
 use tui::widgets::Text;
 
 use crate::errors::Sorry;
 use crate::utility;
 
+#[derive(Debug)]
 pub enum GooseberryEntry {
     Task(TaskEntry),
     Journal(JournalEntry),
@@ -46,8 +45,8 @@ pub trait GooseberryEntryTrait: Sized {
 
 pub trait GooseberryEntryFormat: GooseberryEntryTrait {
     fn to_file(&self, filename: PathFile) -> Result<(), Error>;
-    fn to_tui_short(&self) -> Result<utility::formatting::Markdown, Error>;
-    fn to_tui_long(&self) -> Result<utility::formatting::Markdown, Error>;
+    fn to_tui_short(&self) -> Result<Vec<Text>, Error>;
+    fn to_tui_long(&self) -> Result<Vec<Text>, Error>;
     fn format_id_datetime_tags(&self) -> String {
         format!(
             "ID: {}\nDateTime: {:?}\nTags: {}",
@@ -89,7 +88,7 @@ fn consume_markdown_header<'a>(
 }
 
 #[derive(Copy, Debug, Clone)]
-enum GooseberryEntryType {
+pub enum GooseberryEntryType {
     Task,
     Research,
     Journal,
@@ -113,7 +112,7 @@ impl FromStr for GooseberryEntryType {
     }
 }
 
-fn get_type_header_lines(
+pub fn get_type_header_lines(
     filename: &PathFile,
 ) -> Result<(GooseberryEntryType, HashMap<String, String>, String), Error> {
     let content = filename.read_string()?;
@@ -136,12 +135,15 @@ fn get_id_datetime_tags(
             element: "ID".into(),
         })?
         .parse::<u64>()?;
-    let datetime = header
-        .get("DateTime")
-        .ok_or(Sorry::MissingHeaderElement {
-            element: "DateTime".into(),
-        })?
-        .parse::<DateTime<Utc>>()?;
+    let datetime = DateTime::from_utc(
+        NaiveDateTime::parse_from_str(
+            header.get("DateTime").ok_or(Sorry::MissingHeaderElement {
+                element: "DateTime".into(),
+            })?,
+            "%v %r",
+        )?,
+        Utc,
+    );
     let tags = header
         .get("Tags")
         .ok_or(Sorry::MissingHeaderElement {
@@ -191,6 +193,7 @@ impl GooseberryEntryTrait for TaskEntry {
             .ok_or(Sorry::MissingHeaderElement {
                 element: "Done".into(),
             })?
+            .trim()
             .parse::<bool>()?;
         Ok(TaskEntry {
             id,
@@ -236,6 +239,7 @@ impl GooseberryEntryFormat for TaskEntry {
             utility::formatting::NOT_DONE
         };
         Ok(utility::formatting::style_short(
+            self.id,
             &self.task,
             Some(mark),
             &self.datetime,
@@ -248,6 +252,7 @@ impl GooseberryEntryFormat for TaskEntry {
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(
             &self.description,
         ));
+        styled_text.push(Text::Raw("\n---\n".into()));
         Ok(styled_text)
     }
 }
@@ -304,6 +309,7 @@ impl GooseberryEntryFormat for JournalEntry {
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
+            self.id,
             &self.description,
             None,
             &self.datetime,
@@ -372,6 +378,7 @@ impl GooseberryEntryFormat for ResearchEntry {
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
+            self.id,
             &self.title,
             None,
             &self.datetime,
@@ -382,6 +389,7 @@ impl GooseberryEntryFormat for ResearchEntry {
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
         let mut styled_text = self.to_tui_short()?;
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(&self.notes));
+        styled_text.push(Text::raw("\n---"));
         Ok(styled_text)
     }
 }
@@ -458,6 +466,7 @@ impl GooseberryEntryFormat for EventEntry {
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
+            self.id,
             &self.title,
             None,
             &self.datetime,

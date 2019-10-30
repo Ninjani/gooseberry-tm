@@ -10,4 +10,6 @@ pub enum Sorry {
     MissingHeader,
     #[error("An entry of this type needs the '{element:?}' element in its header")]
     MissingHeaderElement { element: String },
+    #[error("Your $EDITOR didn't work")]
+    EditorError,
 }
