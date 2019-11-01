@@ -1,17 +1,10 @@
-use std::{
-    io::{self, Stdout},
-    sync::mpsc,
-    thread,
-    time::Duration,
-};
+use std::{sync::mpsc, thread, time::Duration};
 
 use anyhow::Error;
+use crossterm::{input, InputEvent, KeyEvent};
 use dialoguer::{Editor, Input, theme as dialoguer_theme};
-use termion::{
-    event::Key, input::MouseTerminal, input::TermRead, raw::RawTerminal, screen::AlternateScreen,
-};
 use tui::{
-    backend::TermionBackend,
+    backend::CrosstermBackend,
     Frame,
     layout::{Constraint, Rect},
     style::Style,
@@ -21,8 +14,8 @@ use tui::{
 use crate::errors::Sorry;
 use crate::utility;
 
-pub type TuiFrame<'a> =
-Frame<'a, TermionBackend<AlternateScreen<MouseTerminal<RawTerminal<Stdout>>>>>;
+pub type TuiFrame<'a> = Frame<'a, CrosstermBackend>;
+//    Frame<'a, TermionBackend<AlternateScreen<MouseTerminal<RawTerminal<Stdout>>>>>;
 
 #[derive(Debug, Clone)]
 pub struct InputBoxes {
@@ -37,7 +30,7 @@ pub struct InputBox {
     is_writing: bool,
     content: String,
     markdown: bool,
-    constraint: Constraint,
+    percent: u16,
 }
 
 impl InputBox {
@@ -47,7 +40,7 @@ impl InputBox {
             is_writing: false,
             content: String::new(),
             markdown,
-            constraint: Constraint::Percentage(percent),
+            percent,
         }
     }
 
@@ -101,8 +94,28 @@ impl InputBoxes {
         self.boxes[self.index].is_writing = true;
     }
 
+    pub fn stop_writing(&mut self) {
+        self.is_writing = false;
+        self.index = 0;
+        for i in 0..self.len() {
+            self.boxes[i].is_writing = false;
+        }
+    }
+
     pub fn get_constraints(&self) -> Vec<Constraint> {
-        self.boxes.iter().map(|b| b.constraint).collect()
+        if self.is_writing {
+            let sum = self.boxes.iter().map(|b| b.percent).sum::<u16>();
+            let first_box_percent = 10;
+            let second_box_percent = 100 - 10 - sum;
+            let mut constraints = vec![
+                Constraint::Percentage(first_box_percent),
+                Constraint::Percentage(second_box_percent),
+            ];
+            constraints.extend(self.boxes.iter().map(|b| Constraint::Percentage(b.percent)));
+            constraints
+        } else {
+            vec![Constraint::Percentage(10), Constraint::Percentage(90)]
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -114,22 +127,17 @@ impl InputBoxes {
     }
 
     fn save(&mut self) -> Vec<InputBox> {
-        self.is_writing = false;
-        self.index = 0;
         let boxes = self.boxes.clone();
         for i in 0..self.len() {
-            self.boxes[i].is_writing = false;
             self.boxes[i].content = String::new();
         }
+        self.stop_writing();
         boxes
     }
 
     fn increment_box(&mut self) {
         self.boxes[self.index].is_writing = false;
-        self.index += 1;
-        if self.index >= self.len() {
-            self.index = 0;
-        }
+        self.index = (self.index + 1) % self.len();
         self.boxes[self.index].is_writing = true;
     }
 
@@ -143,25 +151,25 @@ impl InputBoxes {
         self.boxes[self.index].is_writing = true;
     }
 
-    pub fn keypress(&mut self, key: Key) -> Option<Vec<InputBox>> {
+    pub fn keypress(&mut self, key: KeyEvent) -> Option<Vec<InputBox>> {
         match key {
-            Key::Ctrl(c) => match c {
+            KeyEvent::Ctrl(c) => match c {
                 's' => return Some(self.save()),
                 'n' => self.increment_box(),
                 'b' => self.decrement_box(),
                 _ => (),
             },
-            Key::Char(c) => {
+            KeyEvent::Char(c) => {
                 if !self.boxes[self.index].markdown && c == '\n' {
                     self.increment_box()
                 } else {
                     self.boxes[self.index].content.push(c)
                 }
             }
-            Key::Backspace => {
+            KeyEvent::Backspace => {
                 self.boxes[self.index].content.pop();
             }
-            Key::Esc => self.is_writing = false,
+            KeyEvent::Esc => self.stop_writing(),
             _ => (),
         }
         None
@@ -210,45 +218,46 @@ pub enum Event<I> {
 /// A small event handler that wrap termion input and tick events. Each event
 /// type is handled in its own thread and returned to a common `Receiver`
 pub struct Events {
-    rx: mpsc::Receiver<Event<Key>>,
+    rx: mpsc::Receiver<Event<KeyEvent>>,
     input_handle: thread::JoinHandle<()>,
     tick_handle: thread::JoinHandle<()>,
 }
-
-#[derive(Debug, Clone, Copy)]
-pub struct Config {
-    pub exit_key: Key,
-    pub tick_rate: Duration,
-}
-
-impl Default for Config {
-    fn default() -> Config {
-        Config {
-            exit_key: Key::Char('q'),
-            tick_rate: Duration::from_millis(250),
-        }
-    }
-}
+//
+//#[derive(Debug, Clone)]
+//pub struct Config {
+//    pub exit_key: KeyEvent,
+//    pub tick_rate: Duration,
+//}
+//
+//impl Default for Config {
+//    fn default() -> Config {
+//        Config {
+//            exit_key: KeyEvent::Char('q'),
+//            tick_rate: Duration::from_millis(250),
+//        }
+//    }
+//}
 
 impl Default for Events {
     fn default() -> Self {
-        Events::with_config(Config::default())
+        Events::new(Duration::from_millis(250), 'q')
     }
 }
 
 impl Events {
-    pub fn with_config(config: Config) -> Events {
+    pub fn new(tick_rate: Duration, exit_char: char) -> Events {
         let (tx, rx) = mpsc::channel();
         let input_handle = {
             let tx = tx.clone();
             thread::spawn(move || {
-                let stdin = io::stdin();
-                for evt in stdin.keys() {
-                    if let Ok(key) = evt {
-                        if tx.send(Event::Input(key)).is_err() {
+                let input = input();
+                let reader = input.read_sync();
+                for evt in reader {
+                    if let InputEvent::Keyboard(key) = evt {
+                        if tx.send(Event::Input(key.clone())).is_err() {
                             return;
                         }
-                        if key == config.exit_key {
+                        if key == KeyEvent::Char(exit_char) {
                             return;
                         }
                     }
@@ -261,7 +270,7 @@ impl Events {
                 let tx = tx.clone();
                 loop {
                     tx.send(Event::Tick).unwrap();
-                    thread::sleep(config.tick_rate);
+                    thread::sleep(tick_rate);
                 }
             })
         };
@@ -272,30 +281,7 @@ impl Events {
         }
     }
 
-    pub fn next(&self) -> Result<Event<Key>, mpsc::RecvError> {
+    pub fn next(&self) -> Result<Event<KeyEvent>, mpsc::RecvError> {
         self.rx.recv()
-    }
-}
-
-pub struct TabsState<'a> {
-    pub titles: Vec<&'a str>,
-    pub index: usize,
-}
-
-impl<'a> TabsState<'a> {
-    pub fn new(titles: Vec<&'a str>) -> TabsState {
-        TabsState { titles, index: 0 }
-    }
-
-    pub fn next(&mut self) {
-        self.index = (self.index + 1) % self.titles.len();
-    }
-
-    pub fn previous(&mut self) {
-        if self.index > 0 {
-            self.index -= 1;
-        } else {
-            self.index = self.titles.len() - 1;
-        }
     }
 }

@@ -1,104 +1,172 @@
 use std::collections::HashMap;
 
 use anyhow::Error;
-use chrono::Utc;
-use path_abs::PathFile;
-use termion::event::Key;
+use crossterm::KeyEvent;
+use glob::glob;
+use path_abs::{PathDir, PathFile};
 use tui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
-    widgets::{Block, Borders, Paragraph, Text, Widget},
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Paragraph, Tabs, Text, Widget},
 };
 
 use crate::{entry, utility};
-use crate::entry::GooseberryEntryFormat;
+use crate::entry::GooseberryEntryTrait;
 
 pub struct GooseberryTabs {
-    task_tab: TaskTab,
+    pub tabs: Vec<GooseberryTab>,
+    pub index: usize,
 }
 
-pub trait GooseberryTab {
-    /// Returns the TUI layout for the Tab
-    fn get_layout(&self) -> Layout;
-    /// Renders the text inside the Tab
-    fn render(&self, chunks: &[Rect], frame: &mut utility::interactive::TuiFrame);
-    /// Deals with key-press events inside the Tab
-    fn keypress(&mut self, key: Key) -> Result<bool, Error>;
+impl GooseberryTabs {
+    pub fn from_folder(folder: &PathDir) -> Result<Self, Error> {
+        Ok(Self {
+            tabs: vec![
+                GooseberryTab::from_folder(entry::GooseberryEntryType::Task, folder)?,
+                GooseberryTab::from_folder(entry::GooseberryEntryType::Journal, folder)?,
+                GooseberryTab::from_folder(entry::GooseberryEntryType::Research, folder)?,
+                GooseberryTab::from_folder(entry::GooseberryEntryType::Event, folder)?,
+            ],
+            index: 0,
+        })
+    }
+
+    pub fn render(&self, frame: &mut utility::interactive::TuiFrame) {
+        let titles = self
+            .tabs
+            .iter()
+            .map(|t| t.title.clone())
+            .collect::<Vec<_>>();
+        let mut tabs = Tabs::default()
+            .block(Block::default().borders(Borders::ALL).title("Tabs"))
+            .titles(&titles)
+            .select(self.index)
+            .style(Style::default().fg(Color::Cyan))
+            .highlight_style(Style::default().fg(Color::Yellow));
+        self.tabs[self.index].render(frame, &mut tabs);
+    }
+
+    pub fn is_writing(&self) -> bool {
+        self.tabs[self.index].is_writing()
+    }
+
+    pub fn keypress(&mut self, key: KeyEvent) -> Result<bool, Error> {
+        if !self.is_writing() {
+            match key {
+                KeyEvent::Right => self.next(),
+                KeyEvent::Left => self.previous(),
+                _key => return self.tabs[self.index].keypress(_key),
+            }
+        } else {
+            return self.tabs[self.index].keypress(key);
+        }
+        Ok(false)
+    }
+
+    pub fn next(&mut self) {
+        self.index = (self.index + 1) % self.tabs.len();
+    }
+
+    pub fn previous(&mut self) {
+        if self.index > 0 {
+            self.index -= 1;
+        } else {
+            self.index = self.tabs.len() - 1;
+        }
+    }
 }
 
-impl GooseberryTab for TaskTab {
-    fn get_layout(&self) -> Layout {
+pub struct GooseberryTab {
+    title: String,
+    entry_type: entry::GooseberryEntryType,
+    fold: bool,
+    entries: HashMap<u64, entry::GooseberryEntry>,
+    visible_ids: Vec<u64>,
+    input_boxes: utility::interactive::InputBoxes,
+    next_id: u64,
+    folder: PathDir,
+}
+
+impl GooseberryTab {
+    pub fn get_layout(&self) -> Layout {
         Layout::default()
             .direction(Direction::Vertical)
             .margin(5)
             .constraints(self.get_constraints().as_ref())
     }
 
-    fn render(&self, chunks: &[Rect], frame: &mut utility::interactive::TuiFrame) {
+    pub fn render(&self, frame: &mut utility::interactive::TuiFrame, tabs: &mut Tabs<String>) {
+        let size = frame.size();
+        let chunks = self.get_layout().split(size);
+        tabs.render(frame, chunks[0]);
         let block = Block::default()
             .borders(Borders::ALL)
             .title_style(Style::default().modifier(Modifier::BOLD));
         Paragraph::new(self.get_texts().iter())
-            .block(block.clone().title("Tasks"))
+            .block(block.clone().title(&self.title))
             .alignment(Alignment::Left)
-            .render(frame, chunks[0]);
+            .render(frame, chunks[1]);
         if self.is_writing() {
-            self.input_boxes.render(&chunks[1..], frame);
+            self.input_boxes.render(&chunks[2..], frame);
         }
     }
 
-    fn keypress(&mut self, key: Key) -> Result<bool, Error> {
+    pub fn keypress(&mut self, key: KeyEvent) -> Result<bool, Error> {
         if self.input_boxes.is_writing {
-            if let Some(task_entry) = self.input_boxes.keypress(key) {
-                self.add_entry(task_entry)?;
+            if let Some(task_entry_boxes) = self.input_boxes.keypress(key) {
+                self.add_entry(task_entry_boxes)?;
             }
-        } else if let Key::Char(c) = key {
+        } else if let KeyEvent::Char(c) = key {
             match c {
                 'q' => return Ok(true),
                 'n' => self.input_boxes.start_writing(),
+                '\t' => self.toggle_fold(),
                 _ => (),
             }
         }
 
         Ok(false)
     }
-}
 
-pub struct TaskTab {
-    fold: bool,
-    entries: HashMap<u64, entry::TaskEntry>,
-    visible_ids: Vec<u64>,
-    input_boxes: utility::interactive::InputBoxes,
-    next_id: u64,
-}
+    pub fn toggle_fold(&mut self) {
+        self.fold = !self.fold;
+    }
 
-impl TaskTab {
     pub fn is_writing(&self) -> bool {
         self.input_boxes.is_writing
     }
 
-    pub fn new(entries: HashMap<u64, entry::TaskEntry>, next_id: u64) -> Self {
-        let visible_ids = entries.keys().cloned().collect();
-        TaskTab {
+    pub fn from_folder(
+        entry_type: entry::GooseberryEntryType,
+        folder: &PathDir,
+    ) -> Result<Self, Error> {
+        let mut entries = HashMap::new();
+        let mut visible_ids = Vec::new();
+        for file in glob(&format!(
+            "{}/{}_*.md",
+            folder.as_path().display(),
+            entry_type
+        ))? {
+            let g_entry = entry::GooseberryEntry::from_file(&PathFile::new(file?)?)?;
+
+            visible_ids.push(g_entry.id());
+            entries.insert(g_entry.id(), g_entry);
+        }
+        let next_id = *visible_ids.iter().max().unwrap_or(&0) + 1;
+        Ok(GooseberryTab {
+            title: format!("{}", entry_type),
             entries,
             fold: false,
             visible_ids,
-            input_boxes: utility::interactive::InputBoxes::new(vec![
-                utility::interactive::InputBox::new(String::from("Task"), false, 10),
-                utility::interactive::InputBox::new(String::from("Description"), true, 70),
-            ]),
+            input_boxes: entry_type.get_input_boxes(),
             next_id,
-        }
+            folder: folder.to_owned(),
+            entry_type,
+        })
     }
 
     fn get_constraints(&self) -> Vec<Constraint> {
-        if self.input_boxes.is_writing {
-            let mut contraints = vec![Constraint::Percentage(20)];
-            contraints.extend_from_slice(&self.input_boxes.get_constraints());
-            contraints
-        } else {
-            vec![Constraint::Percentage(100)]
-        }
+        self.input_boxes.get_constraints()
     }
 
     fn get_texts(&self) -> Vec<Text> {
@@ -115,20 +183,12 @@ impl TaskTab {
     }
 
     fn add_entry(&mut self, boxes: Vec<utility::interactive::InputBox>) -> Result<(), Error> {
-        let (task, description) = (boxes[0].get_content(), boxes[1].get_content());
-        let task_entry = entry::TaskEntry {
-            id: self.next_id,
-            task,
-            description,
-            datetime: Utc::now(),
-            done: false,
-            tags: Vec::new(),
-        };
-        task_entry.to_file(PathFile::create(format!(
-            "/Users/janani/PycharmProjects/rust-projects/gooseberry-tm/test_entries/{}.md",
-            self.next_id
-        ))?)?;
-        self.entries.insert(self.next_id, task_entry);
+        let new_entry =
+            entry::GooseberryEntry::from_input_boxes(self.next_id, self.entry_type, boxes)?;
+        new_entry.to_file(PathFile::create(
+            self.entry_type.get_file(&self.folder, self.next_id)?,
+        )?)?;
+        self.entries.insert(self.next_id, new_entry);
         self.visible_ids.push(self.next_id);
         self.next_id += 1;
         Ok(())

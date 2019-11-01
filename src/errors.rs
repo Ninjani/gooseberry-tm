@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::entry::GooseberryEntryType;
+
 #[derive(Debug, Error)]
 pub enum Sorry {
     #[error(
@@ -12,4 +14,11 @@ pub enum Sorry {
     MissingHeaderElement { element: String },
     #[error("Your $EDITOR didn't work")]
     EditorError,
+    #[error("Expected {expected:?}, got {got:?}")]
+    WrongEntryType {
+        expected: GooseberryEntryType,
+        got: GooseberryEntryType,
+    },
+    #[error("Redo from start. {message:?}")]
+    OutOfCheeseError { message: String },
 }

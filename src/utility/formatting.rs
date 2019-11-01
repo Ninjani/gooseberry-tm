@@ -95,15 +95,9 @@ fn style_datetime(datetime: &DateTime<Utc>) -> Text {
     )
 }
 
-fn style_tags(tags: &[u64]) -> Text {
+fn style_tags(tags: &[String]) -> Text {
     Text::styled(
-        format!(
-            "{}\n",
-            tags.iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        format!("{}\n", tags.join(", ")),
         TuiStyle::default().fg(TuiColor::LightGreen),
     )
 }
@@ -113,20 +107,21 @@ pub fn style_short<'a>(
     title: &'a str,
     mark: Option<char>,
     datetime: &'a DateTime<Utc>,
-    tags: &'a [u64],
+    tags: &'a [String],
 ) -> Vec<Text<'a>> {
     vec![
         style_title(id, title, mark),
         style_datetime(datetime),
         style_tags(tags),
-        Text::raw("\n"),
     ]
 }
 
 pub fn style_people(people: &[String]) -> Text {
     Text::styled(
-        people.join(", "),
-        TuiStyle::default().modifier(Modifier::BOLD),
+        format!("{}\n", people.join(", ")),
+        TuiStyle::default()
+            .fg(TuiColor::LightRed)
+            .modifier(Modifier::BOLD),
     )
 }
 
