@@ -14,6 +14,35 @@ pub const HEADER_MARK: &str = "---";
 pub const DONE: char = '\u{2713}';
 pub const NOT_DONE: char = '\u{2715}';
 
+#[derive(Copy, Debug, Clone)]
+pub enum TaskState {
+    Done,
+    NotDone,
+}
+
+impl TaskState {
+    fn symbol(self) -> char {
+        match self {
+            TaskState::Done => '\u{2713}',
+            TaskState::NotDone => '\u{2715}',
+        }
+    }
+
+    fn color(self) -> TuiColor {
+        match self {
+            TaskState::Done => TuiColor::Green,
+            TaskState::NotDone => TuiColor::Red,
+        }
+    }
+
+    fn styled_symbol<'a>(self) -> Text<'a> {
+        Text::Styled(
+            format!("{} ", self.symbol()).into(),
+            TuiStyle::default().fg(self.color()),
+        )
+    }
+}
+
 lazy_static! {
     static ref SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_newlines();
     static ref THEME_SET: ThemeSet = ThemeSet::load_defaults();
@@ -79,13 +108,16 @@ fn syntect_to_tui_style(syntect_style: SyntectStyle) -> TuiStyle {
     }
 }
 
-fn style_title(id: u64, title: &str, mark: Option<char>) -> Text {
-    Text::styled(
-        format!("{} {} {}\n", id, mark.unwrap_or(' '), title),
-        TuiStyle::default()
-            .fg(TuiColor::White)
-            .modifier(Modifier::BOLD),
-    )
+fn style_title(id: u64, title: &str, mark: Option<TaskState>) -> Vec<Text> {
+    let mut texts = vec![Text::raw(format!("{} ", id))];
+    if let Some(state) = mark {
+        texts.push(state.styled_symbol());
+    }
+    texts.push(Text::styled(
+        format!("{}\n", title.trim()),
+        TuiStyle::default().modifier(Modifier::ITALIC),
+    ));
+    texts
 }
 
 fn style_datetime(datetime: &DateTime<Utc>) -> Text {
@@ -105,15 +137,14 @@ fn style_tags(tags: &[String]) -> Text {
 pub fn style_short<'a>(
     id: u64,
     title: &'a str,
-    mark: Option<char>,
+    mark: Option<TaskState>,
     datetime: &'a DateTime<Utc>,
     tags: &'a [String],
 ) -> Vec<Text<'a>> {
-    vec![
-        style_title(id, title, mark),
-        style_datetime(datetime),
-        style_tags(tags),
-    ]
+    let mut texts = style_title(id, title, mark);
+    texts.push(style_datetime(datetime));
+    texts.push(style_tags(tags));
+    texts
 }
 
 pub fn style_people(people: &[String]) -> Text {

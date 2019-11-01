@@ -1,8 +1,6 @@
 use std::{sync::mpsc, thread, time::Duration};
 
-use anyhow::Error;
 use crossterm::{input, InputEvent, KeyEvent};
-use dialoguer::{Editor, Input, theme as dialoguer_theme};
 use tui::{
     backend::CrosstermBackend,
     Frame,
@@ -11,15 +9,13 @@ use tui::{
     widgets::{Block, Borders, Paragraph, Text, Widget},
 };
 
-use crate::errors::Sorry;
+use crate::tabs::{HELP_BOX_PERCENT, TAB_BOX_PERCENT};
 use crate::utility;
 
 pub type TuiFrame<'a> = Frame<'a, CrosstermBackend>;
-//    Frame<'a, TermionBackend<AlternateScreen<MouseTerminal<RawTerminal<Stdout>>>>>;
 
 #[derive(Debug, Clone)]
 pub struct InputBoxes {
-    pub is_writing: bool,
     boxes: Vec<InputBox>,
     index: usize,
 }
@@ -31,6 +27,7 @@ pub struct InputBox {
     content: String,
     markdown: bool,
     percent: u16,
+    scroll: u16,
 }
 
 impl InputBox {
@@ -41,6 +38,7 @@ impl InputBox {
             content: String::new(),
             markdown,
             percent,
+            scroll: 0,
         }
     }
 
@@ -54,6 +52,8 @@ impl InputBox {
             .title_style(Style::default());
         Paragraph::new(self.get_text().iter())
             .block(block.title(&self.title))
+            .scroll(self.scroll)
+            .wrap(true)
             .render(frame, chunk);
     }
 
@@ -72,11 +72,9 @@ impl InputBox {
 
 impl InputBoxes {
     pub fn new(boxes: Vec<InputBox>) -> Self {
-        Self {
-            boxes,
-            index: 0,
-            is_writing: false,
-        }
+        let mut input_boxes = Self { boxes, index: 0 };
+        input_boxes.boxes[input_boxes.index].is_writing = true;
+        input_boxes
     }
 
     pub fn render(&self, chunks: &[Rect], frame: &mut TuiFrame) {
@@ -86,7 +84,6 @@ impl InputBoxes {
     }
 
     pub fn start_writing(&mut self) {
-        self.is_writing = true;
         self.index = 0;
         for i in 0..self.len() {
             self.boxes[i].is_writing = false;
@@ -95,27 +92,26 @@ impl InputBoxes {
     }
 
     pub fn stop_writing(&mut self) {
-        self.is_writing = false;
         self.index = 0;
         for i in 0..self.len() {
             self.boxes[i].is_writing = false;
         }
     }
 
+    pub fn replace_content(&mut self, index: usize, content: &str) {
+        self.boxes[index].content = content.to_owned();
+    }
+
     pub fn get_constraints(&self) -> Vec<Constraint> {
-        if self.is_writing {
-            let sum = self.boxes.iter().map(|b| b.percent).sum::<u16>();
-            let first_box_percent = 10;
-            let second_box_percent = 100 - 10 - sum;
-            let mut constraints = vec![
-                Constraint::Percentage(first_box_percent),
-                Constraint::Percentage(second_box_percent),
-            ];
-            constraints.extend(self.boxes.iter().map(|b| Constraint::Percentage(b.percent)));
-            constraints
-        } else {
-            vec![Constraint::Percentage(10), Constraint::Percentage(90)]
-        }
+        let sum = self.boxes.iter().map(|b| b.percent).sum::<u16>();
+        let second_box_percent = 100 - TAB_BOX_PERCENT - sum - HELP_BOX_PERCENT;
+        let mut constraints = vec![
+            Constraint::Percentage(TAB_BOX_PERCENT),
+            Constraint::Percentage(second_box_percent),
+        ];
+        constraints.extend(self.boxes.iter().map(|b| Constraint::Percentage(b.percent)));
+        constraints.push(Constraint::Percentage(HELP_BOX_PERCENT));
+        constraints
     }
 
     pub fn len(&self) -> usize {
@@ -151,10 +147,10 @@ impl InputBoxes {
         self.boxes[self.index].is_writing = true;
     }
 
-    pub fn keypress(&mut self, key: KeyEvent) -> Option<Vec<InputBox>> {
+    pub fn keypress(&mut self, key: KeyEvent) -> (Option<Vec<InputBox>>, bool) {
         match key {
             KeyEvent::Ctrl(c) => match c {
-                's' => return Some(self.save()),
+                's' => return (Some(self.save()), true),
                 'n' => self.increment_box(),
                 'b' => self.decrement_box(),
                 _ => (),
@@ -169,44 +165,19 @@ impl InputBoxes {
             KeyEvent::Backspace => {
                 self.boxes[self.index].content.pop();
             }
-            KeyEvent::Esc => self.stop_writing(),
+            KeyEvent::Up => {
+                if self.boxes[self.index].scroll > 0 {
+                    self.boxes[self.index].scroll -= 1;
+                }
+            }
+            KeyEvent::Down => self.boxes[self.index].scroll += 1,
+            KeyEvent::Esc => {
+                self.stop_writing();
+                return (None, true);
+            }
             _ => (),
         }
-        None
-    }
-}
-
-/// Gets input from external editor, optionally displays default text in editor
-pub fn external_editor_input(default: Option<&str>) -> Result<String, Error> {
-    match Editor::new().edit(default.unwrap_or(""))? {
-        Some(input) => Ok(input),
-        None => Err(Sorry::EditorError.into()),
-    }
-}
-
-/// Takes user input from terminal, optionally has a default and optionally displays it.
-pub fn user_input(
-    message: &str,
-    default: Option<&str>,
-    show_default: bool,
-) -> Result<String, Error> {
-    match default {
-        Some(default) => Ok(
-            Input::with_theme(&dialoguer_theme::ColorfulTheme::default())
-                .with_prompt(message)
-                .default(default.to_owned())
-                .show_default(show_default)
-                .interact()?
-                .trim()
-                .to_owned(),
-        ),
-        None => Ok(
-            Input::<String>::with_theme(&dialoguer_theme::ColorfulTheme::default())
-                .with_prompt(message)
-                .interact()?
-                .trim()
-                .to_owned(),
-        ),
+        (None, false)
     }
 }
 
@@ -222,30 +193,15 @@ pub struct Events {
     input_handle: thread::JoinHandle<()>,
     tick_handle: thread::JoinHandle<()>,
 }
-//
-//#[derive(Debug, Clone)]
-//pub struct Config {
-//    pub exit_key: KeyEvent,
-//    pub tick_rate: Duration,
-//}
-//
-//impl Default for Config {
-//    fn default() -> Config {
-//        Config {
-//            exit_key: KeyEvent::Char('q'),
-//            tick_rate: Duration::from_millis(250),
-//        }
-//    }
-//}
 
 impl Default for Events {
     fn default() -> Self {
-        Events::new(Duration::from_millis(250), 'q')
+        Events::new(Duration::from_millis(250))
     }
 }
 
 impl Events {
-    pub fn new(tick_rate: Duration, exit_char: char) -> Events {
+    pub fn new(tick_rate: Duration) -> Events {
         let (tx, rx) = mpsc::channel();
         let input_handle = {
             let tx = tx.clone();
@@ -255,9 +211,6 @@ impl Events {
                 for evt in reader {
                     if let InputEvent::Keyboard(key) = evt {
                         if tx.send(Event::Input(key.clone())).is_err() {
-                            return;
-                        }
-                        if key == KeyEvent::Char(exit_char) {
                             return;
                         }
                     }

@@ -6,7 +6,10 @@ use path_abs::{PathDir, PathFile, PathOps};
 use tui::widgets::Text;
 
 use crate::errors::Sorry;
-use crate::utility;
+use crate::utility::{
+    self,
+    interactive::{InputBox, InputBoxes},
+};
 
 #[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub enum GooseberryEntryType {
@@ -57,8 +60,9 @@ pub trait GooseberryEntryTrait: Sized {
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
-        boxes: Vec<utility::interactive::InputBox>,
+        boxes: Vec<InputBox>,
     ) -> Result<Self, Error>;
+    fn to_input_boxes(&self) -> InputBoxes;
     fn id(&self) -> u64;
     fn tags(&self) -> &[String];
     fn datetime(&self) -> &DateTime<Utc>;
@@ -76,7 +80,7 @@ pub trait GooseberryEntryTrait: Sized {
                 .iter()
                 .map(|t| t.to_string())
                 .collect::<Vec<_>>()
-                .join(",")
+                .join(", ")
         )
     }
 }
@@ -120,7 +124,7 @@ impl GooseberryEntryTrait for GooseberryEntry {
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
-        boxes: Vec<utility::interactive::InputBox>,
+        boxes: Vec<InputBox>,
     ) -> Result<Self, Error> {
         match entry_type {
             GooseberryEntryType::Task => Ok(GooseberryEntry::Task(TaskEntry::from_input_boxes(
@@ -135,6 +139,15 @@ impl GooseberryEntryTrait for GooseberryEntry {
             GooseberryEntryType::Research => Ok(GooseberryEntry::Research(
                 ResearchEntry::from_input_boxes(id, entry_type, boxes)?,
             )),
+        }
+    }
+
+    fn to_input_boxes(&self) -> InputBoxes {
+        match self {
+            GooseberryEntry::Task(e) => e.to_input_boxes(),
+            GooseberryEntry::Journal(e) => e.to_input_boxes(),
+            GooseberryEntry::Event(e) => e.to_input_boxes(),
+            GooseberryEntry::Research(e) => e.to_input_boxes(),
         }
     }
 
@@ -229,27 +242,27 @@ fn consume_markdown_header<'a>(
 }
 
 impl GooseberryEntryType {
-    pub fn get_input_boxes(&self) -> utility::interactive::InputBoxes {
+    pub fn get_input_boxes(&self) -> InputBoxes {
         match self {
-            GooseberryEntryType::Task => utility::interactive::InputBoxes::new(vec![
-                utility::interactive::InputBox::new(String::from("Task"), false, 10),
-                utility::interactive::InputBox::new(String::from("Description"), true, 70),
-                utility::interactive::InputBox::new(String::from("Tags"), false, 10),
+            GooseberryEntryType::Task => InputBoxes::new(vec![
+                InputBox::new(String::from("Task"), false, 10),
+                InputBox::new(String::from("Description"), true, 60),
+                InputBox::new(String::from("Tags"), false, 10),
             ]),
-            GooseberryEntryType::Journal => utility::interactive::InputBoxes::new(vec![
-                utility::interactive::InputBox::new(String::from("Description"), false, 10),
-                utility::interactive::InputBox::new(String::from("Tags"), false, 10),
+            GooseberryEntryType::Journal => InputBoxes::new(vec![
+                InputBox::new(String::from("Description"), false, 10),
+                InputBox::new(String::from("Tags"), false, 10),
             ]),
-            GooseberryEntryType::Research => utility::interactive::InputBoxes::new(vec![
-                utility::interactive::InputBox::new(String::from("Title"), false, 10),
-                utility::interactive::InputBox::new(String::from("Notes"), true, 70),
-                utility::interactive::InputBox::new(String::from("Tags"), false, 10),
+            GooseberryEntryType::Research => InputBoxes::new(vec![
+                InputBox::new(String::from("Title"), false, 10),
+                InputBox::new(String::from("Notes"), true, 60),
+                InputBox::new(String::from("Tags"), false, 10),
             ]),
-            GooseberryEntryType::Event => utility::interactive::InputBoxes::new(vec![
-                utility::interactive::InputBox::new(String::from("Title"), false, 10),
-                utility::interactive::InputBox::new(String::from("Notes"), true, 60),
-                utility::interactive::InputBox::new(String::from("People"), false, 10),
-                utility::interactive::InputBox::new(String::from("Tags"), false, 10),
+            GooseberryEntryType::Event => InputBoxes::new(vec![
+                InputBox::new(String::from("Title"), false, 10),
+                InputBox::new(String::from("Notes"), true, 50),
+                InputBox::new(String::from("People"), false, 10),
+                InputBox::new(String::from("Tags"), false, 10),
             ]),
         }
     }
@@ -306,16 +319,8 @@ pub struct TaskEntry {
 }
 
 impl TaskEntry {
-    fn toggle(&mut self) {
+    pub fn toggle(&mut self) {
         self.done = !self.done;
-    }
-
-    fn done(&mut self) {
-        self.done = true;
-    }
-
-    fn not_done(&mut self) {
-        self.done = false;
     }
 }
 
@@ -349,7 +354,7 @@ impl GooseberryEntryTrait for TaskEntry {
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
-        boxes: Vec<utility::interactive::InputBox>,
+        boxes: Vec<InputBox>,
     ) -> Result<Self, Error> {
         if entry_type != GooseberryEntryType::Task {
             return Err(Sorry::WrongEntryType {
@@ -372,6 +377,14 @@ impl GooseberryEntryTrait for TaskEntry {
             done: false,
             tags,
         })
+    }
+
+    fn to_input_boxes(&self) -> InputBoxes {
+        let mut input_boxes = self.entry_type().get_input_boxes();
+        input_boxes.replace_content(0, &self.task);
+        input_boxes.replace_content(1, &self.description);
+        input_boxes.replace_content(2, &self.tags.join(", "));
+        input_boxes
     }
 
     fn id(&self) -> u64 {
@@ -405,9 +418,9 @@ impl GooseberryEntryTrait for TaskEntry {
 
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         let mark = if self.done {
-            utility::formatting::DONE
+            utility::formatting::TaskState::Done
         } else {
-            utility::formatting::NOT_DONE
+            utility::formatting::TaskState::NotDone
         };
         Ok(utility::formatting::style_short(
             self.id,
@@ -456,7 +469,7 @@ impl GooseberryEntryTrait for JournalEntry {
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
-        boxes: Vec<utility::interactive::InputBox>,
+        boxes: Vec<InputBox>,
     ) -> Result<Self, Error> {
         if entry_type != GooseberryEntryType::Journal {
             return Err(Sorry::WrongEntryType {
@@ -478,6 +491,13 @@ impl GooseberryEntryTrait for JournalEntry {
             datetime: Utc::now(),
             tags,
         })
+    }
+
+    fn to_input_boxes(&self) -> InputBoxes {
+        let mut input_boxes = self.entry_type().get_input_boxes();
+        input_boxes.replace_content(0, &self.description);
+        input_boxes.replace_content(1, &self.tags.join(", "));
+        input_boxes
     }
 
     fn id(&self) -> u64 {
@@ -555,7 +575,7 @@ impl GooseberryEntryTrait for ResearchEntry {
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
-        boxes: Vec<utility::interactive::InputBox>,
+        boxes: Vec<InputBox>,
     ) -> Result<Self, Error> {
         if entry_type != GooseberryEntryType::Research {
             return Err(Sorry::WrongEntryType {
@@ -577,6 +597,14 @@ impl GooseberryEntryTrait for ResearchEntry {
             datetime: Utc::now(),
             tags,
         })
+    }
+
+    fn to_input_boxes(&self) -> InputBoxes {
+        let mut input_boxes = self.entry_type().get_input_boxes();
+        input_boxes.replace_content(0, &self.title);
+        input_boxes.replace_content(1, &self.notes);
+        input_boxes.replace_content(2, &self.tags.join(", "));
+        input_boxes
     }
 
     fn id(&self) -> u64 {
@@ -639,7 +667,7 @@ pub struct EventEntry {
 
 impl EventEntry {
     fn format_people(&self) -> String {
-        self.people.join(",")
+        self.people.join(", ")
     }
 }
 
@@ -674,7 +702,7 @@ impl GooseberryEntryTrait for EventEntry {
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
-        boxes: Vec<utility::interactive::InputBox>,
+        boxes: Vec<InputBox>,
     ) -> Result<Self, Error> {
         if entry_type != GooseberryEntryType::Event {
             return Err(Sorry::WrongEntryType {
@@ -702,6 +730,15 @@ impl GooseberryEntryTrait for EventEntry {
             people,
             tags,
         })
+    }
+
+    fn to_input_boxes(&self) -> InputBoxes {
+        let mut input_boxes = self.entry_type().get_input_boxes();
+        input_boxes.replace_content(0, &self.title);
+        input_boxes.replace_content(1, &self.notes);
+        input_boxes.replace_content(2, &self.people.join(", "));
+        input_boxes.replace_content(2, &self.tags.join(", "));
+        input_boxes
     }
 
     fn id(&self) -> u64 {

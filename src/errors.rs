@@ -8,12 +8,15 @@ pub enum Sorry {
         "What's {entry_type:?}? I can only remember Tasks, Research, Events and Journal entries."
     )]
     UnknownEntryType { entry_type: String },
+    #[error("Entry {entry_type:?}_{entry_id:?} hasn't been written yet")]
+    WrongEntryID {
+        entry_type: GooseberryEntryType,
+        entry_id: u64,
+    },
     #[error("Every entry needs a header section (demarcated by ---) so I know what it's about")]
     MissingHeader,
     #[error("An entry of this type needs the '{element:?}' element in its header")]
     MissingHeaderElement { element: String },
-    #[error("Your $EDITOR didn't work")]
-    EditorError,
     #[error("Expected {expected:?}, got {got:?}")]
     WrongEntryType {
         expected: GooseberryEntryType,
