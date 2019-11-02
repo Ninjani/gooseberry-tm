@@ -10,11 +10,11 @@ use tui::{
     widgets::Text,
 };
 
-/// TODO: Make these configurable
+use crate::utility::config::CONFIG;
+
 pub const HEADER_MARK: &str = "---";
 pub const DONE: char = '\u{2713}';
 pub const NOT_DONE: char = '\u{2715}';
-pub const SYNTAX_THEME: &str = "base16-ocean.dark";
 
 /// Task states
 /// TODO: I guess running/canceled can be some new ones
@@ -56,7 +56,7 @@ lazy_static! {
     /// TODO: Save to file maybe?
     static ref THEME_SET: ThemeSet = ThemeSet::load_defaults();
     /// Load selected highlighting style
-    static ref THEME: &'static Theme = &THEME_SET.themes[SYNTAX_THEME];
+    static ref THEME: &'static Theme = &THEME_SET.themes[&CONFIG.syntax_theme];
     /// Load syntax sets
     static ref SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_newlines();
     /// Load markdown syntax set
@@ -140,29 +140,25 @@ fn style_title(id: u64, title: &str, mark: Option<TaskState>) -> Vec<Text> {
 }
 
 /// Style the date and time
-/// TODO: Configurable color
 fn style_datetime(datetime: &DateTime<Utc>) -> Text {
     Text::styled(
         format!("{}\n", datetime.format("%v %r")),
-        TuiStyle::default().fg(TuiColor::LightBlue),
+        TuiStyle::default().fg(CONFIG.datetime_color),
     )
 }
 
-/// TODO: Configurable color
 fn style_tags(tags: &[String]) -> Text {
     Text::styled(
         format!("{}\n", tags.join(", ")),
-        TuiStyle::default().fg(TuiColor::LightGreen),
+        TuiStyle::default().fg(CONFIG.tags_color),
     )
 }
 
-/// TODO: Configurable color
 pub fn style_people(people: &[String]) -> Text {
     Text::styled(
         format!("{}\n", people.join(", ")),
         TuiStyle::default()
-            .fg(TuiColor::LightRed)
-            .modifier(Modifier::BOLD),
+            .fg(CONFIG.people_color)
     )
 }
 
@@ -185,12 +181,11 @@ pub fn style_short<'a>(
 
 /// Add a fake cursor
 /// Couldn't figure out how to get the real cursor where we need it
-/// TODO: Configurable color
 pub fn cursor<'a>() -> Text<'a> {
     Text::Styled(
-        "|".into(),
+        CONFIG.cursor_char.to_string().into(),
         TuiStyle::default()
-            .fg(TuiColor::LightYellow)
+            .fg(CONFIG.cursor_color)
             .modifier(Modifier::BOLD),
     )
 }

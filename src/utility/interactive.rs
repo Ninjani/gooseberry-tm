@@ -5,7 +5,6 @@ use tui::{
     backend::CrosstermBackend,
     Frame,
     layout::{Constraint, Rect},
-    style::Style,
     widgets::{Block, Borders, Paragraph, Text, Widget},
 };
 
@@ -62,9 +61,7 @@ impl InputBox {
 
     /// Renders the box as a bounded paragraph with a title, wrapped text, and scroll
     pub fn render(&self, chunk: Rect, frame: &mut TuiFrame) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title_style(Style::default());
+        let block = Block::default().borders(Borders::ALL);
         Paragraph::new(self.get_text().iter())
             .block(block.title(&self.title))
             .scroll(self.scroll)

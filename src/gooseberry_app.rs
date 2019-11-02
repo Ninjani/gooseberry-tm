@@ -6,18 +6,20 @@ use glob::glob;
 use path_abs::{PathDir, PathFile};
 use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, Paragraph, Tabs, Text, Widget},
 };
 
-use crate::{entry, utility};
+use crate::{entry, utility, utility::config::CONFIG};
 use crate::entry::GooseberryEntryTrait;
 use crate::errors::Sorry;
+
+//use directories::ProjectDirs;
 
 /// Keyboard shortcuts in scrolling mode
 const HELP_TEXT: &str =
     "< > : change tabs, ^ v : scroll, n : new entry/resume editing, \
-    e <id>[Enter] : edit entry, \\t : toggle fold, q : quit \nt <id>[Enter] : toggle Task";
+     e <id>[Enter] : edit entry, \\t : toggle fold, q : quit \nt <id>[Enter] : toggle Task\n";
 
 /// Keyboard shortcuts in writing mode
 const WRITING_HELP_TEXT: &str =
@@ -62,8 +64,8 @@ impl GooseberryTabs {
             .block(Block::default().borders(Borders::ALL))
             .titles(&titles)
             .select(self.index)
-            .style(Style::default().fg(Color::Cyan))
-            .highlight_style(Style::default().fg(Color::Yellow));
+            .style(Style::default().fg(CONFIG.tab_inactive_color))
+            .highlight_style(Style::default().fg(CONFIG.tab_active_color));
         self.tabs[self.index].render(frame, &mut tabs);
     }
 
@@ -197,19 +199,21 @@ impl GooseberryTab {
         let block = Block::default()
             .borders(Borders::ALL)
             .title_style(Style::default().modifier(Modifier::BOLD));
-        if self.is_writing {
-            Paragraph::new(vec![Text::Raw(WRITING_HELP_TEXT.into())].iter())
-                .block(block)
-                .alignment(Alignment::Center)
-                .wrap(true)
-                .render(frame, chunk)
+//        let project_dirs = ProjectDirs::from("rs", "gooseberry-tm", "gooseberry-tm").unwrap();
+//        let config_dir = project_dirs.config_dir();
+//        let config_file = format!("{}/gooseberry-tm.toml", config_dir.to_str().unwrap());
+        let text = if self.is_writing {
+            WRITING_HELP_TEXT
+//            format!("{}\nChange colors at {}", WRITING_HELP_TEXT, config_file)
         } else {
-            Paragraph::new(vec![Text::Raw(HELP_TEXT.into())].iter())
-                .block(block.clone())
-                .alignment(Alignment::Center)
-                .wrap(true)
-                .render(frame, chunk)
-        }
+            HELP_TEXT
+//            format!("{}\nChange colors at {}", HELP_TEXT, config_file)
+        };
+        Paragraph::new(vec![Text::Raw(text.into())].iter())
+            .block(block)
+            .alignment(Alignment::Center)
+            .wrap(true)
+            .render(frame, chunk)
     }
 
     /// Renders the active tab
@@ -221,11 +225,8 @@ impl GooseberryTab {
         let size = frame.size();
         let chunks = self.get_layout().split(size);
         tabs.render(frame, chunks[0]);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title_style(Style::default().modifier(Modifier::BOLD));
         Paragraph::new(self.get_texts().iter())
-            .block(block.clone())
+            .block(Block::default().borders(Borders::ALL))
             .alignment(Alignment::Left)
             .scroll(self.scroll)
             .wrap(true)
@@ -329,8 +330,10 @@ impl GooseberryTab {
 
     /// fold = true => short display (title, date, tags)
     /// fold = false => displays everything
+    /// sets scroll back to 0 when toggling fold (TODO: not sure if this makes sense)
     pub fn toggle_fold(&mut self) {
         self.fold = !self.fold;
+        self.scroll = 0;
     }
 
     /// Retrieves styled texts to display (TODO: move this to GooseberryEntry so you have more control)
@@ -377,9 +380,12 @@ impl GooseberryTab {
     }
 
     /// Get an entry from input boxes after Ctrl-s in writing mode, save it to file
-    fn add_entry(&mut self, boxes: Vec<utility::interactive::InputBox>, id: u64) -> Result<(), Error> {
-        let new_entry =
-            entry::GooseberryEntry::from_input_boxes(id, self.entry_type, boxes)?;
+    fn add_entry(
+        &mut self,
+        boxes: Vec<utility::interactive::InputBox>,
+        id: u64,
+    ) -> Result<(), Error> {
+        let new_entry = entry::GooseberryEntry::from_input_boxes(id, self.entry_type, boxes)?;
         if self.entries.insert(id, new_entry).is_none() {
             self.visible_ids.push(id);
         }

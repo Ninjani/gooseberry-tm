@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate serde_derive;
 
 use std::io::{self, Write};
 
@@ -24,9 +26,9 @@ fn gooseberry() -> Result<(), Error> {
 
     // Keep track of keyboard events
     let events = utility::interactive::Events::default();
-    let mut app = gooseberry_app::GooseberryTabs::from_folder(&PathDir::new(
-        "test_entries",
-    )?)?;
+
+    // App
+    let mut app = gooseberry_app::GooseberryTabs::from_folder(&PathDir::new("test_entries")?)?;
     terminal.clear()?;
 
     // Main rendering loop

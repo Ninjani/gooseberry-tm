@@ -25,7 +25,7 @@ pub enum GooseberryEntryType {
 /// formats and creates a file to save an entry
 /// <entry_type>_<entry_id>.md
 impl GooseberryEntryType {
-    pub fn get_file(&self, folder: &PathDir, id: u64) -> Result<PathFile, Error> {
+    pub fn get_file(self, folder: &PathDir, id: u64) -> Result<PathFile, Error> {
         Ok(PathFile::create(
             folder.join(&format!("{}_{}.md", self, id)),
         )?)
@@ -265,7 +265,7 @@ fn consume_markdown_header<'a>(
 impl GooseberryEntryType {
     /// Gets the text input boxes for each entry type along with their desired percentages
     /// Too hard-coded, this
-    pub fn get_input_boxes(&self) -> InputBoxes {
+    pub fn get_input_boxes(self) -> InputBoxes {
         match self {
             GooseberryEntryType::Task => InputBoxes::new(vec![
                 InputBox::new(String::from("Task"), false, 10),
@@ -477,7 +477,6 @@ impl GooseberryEntryTrait for TaskEntry {
     }
 }
 
-
 /// Short updates on things you do during the day
 #[derive(Clone, Debug)]
 pub struct JournalEntry {
@@ -594,7 +593,6 @@ impl GooseberryEntryTrait for JournalEntry {
         Ok(styled_text)
     }
 }
-
 
 /// Long-form notes on an interesting topic
 /// e.g. textbook/course notes
