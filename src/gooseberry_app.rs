@@ -14,20 +14,31 @@ use crate::{entry, utility};
 use crate::entry::GooseberryEntryTrait;
 use crate::errors::Sorry;
 
+/// Keyboard shortcuts in scrolling mode
 const HELP_TEXT: &str =
-    "< > : change tabs, ^ v : scroll, n : new entry/resume editing, e <id>[Enter] : edit entry, \\t : toggle fold, q : quit";
+    "< > : change tabs, ^ v : scroll, n : new entry/resume editing, \
+    e <id>[Enter] : edit entry, \\t : toggle fold, q : quit \nt <id>[Enter] : toggle Task";
+
+/// Keyboard shortcuts in writing mode
 const WRITING_HELP_TEXT: &str =
     "Ctrl-n : next box, Ctrl-b : previous box, Ctrl-s : save, Esc : pause writing";
 
+/// Percentage of the terminal to use for displaying the tab bar (on top)
 pub(crate) const TAB_BOX_PERCENT: u16 = 7;
+/// Percentage of the terminal to use for displaying the help text (at the bottom)
 pub(crate) const HELP_BOX_PERCENT: u16 = 13;
 
+/// Main application
 pub struct GooseberryTabs {
+    /// list of `GooseberryTab`s
     pub tabs: Vec<GooseberryTab>,
+    /// index of active tab
     pub index: usize,
 }
 
 impl GooseberryTabs {
+    /// Retrieve all entries from a folder (expects <entry_type>_<entry_id>.md)
+    /// Make a tab for each kind of entry_type
     pub fn from_folder(folder: &PathDir) -> Result<Self, Error> {
         Ok(Self {
             tabs: vec![
@@ -40,6 +51,7 @@ impl GooseberryTabs {
         })
     }
 
+    /// Renders the tab bar and calls the active tab's render function
     pub fn render(&self, frame: &mut utility::interactive::TuiFrame) {
         let titles = self
             .tabs
@@ -55,28 +67,34 @@ impl GooseberryTabs {
         self.tabs[self.index].render(frame, &mut tabs);
     }
 
+    /// Checks if the active tab is in writing mode
     pub fn is_writing(&self) -> bool {
         self.tabs[self.index].is_writing
     }
 
-    pub fn keypress(&mut self, key: KeyEvent) -> Result<bool, Error> {
+    /// Handle keyboard input events
+    /// left and right arrow keys change the active tab
+    /// `q` in scrolling mode returns true (to exit the app)
+    /// Everything else is handled by the active tab's keypress function
+    pub fn keypress(&mut self, key: KeyEvent) -> bool {
         if !self.is_writing() {
             match key {
+                KeyEvent::Char('q') => return true,
                 KeyEvent::Right => self.next(),
                 KeyEvent::Left => self.previous(),
-                _key => return self.tabs[self.index].keypress(_key),
+                _key => self.tabs[self.index].keypress(_key),
             }
         } else {
-            return self.tabs[self.index].keypress(key);
+            self.tabs[self.index].keypress(key);
         }
-        Ok(false)
+        false
     }
 
-    pub fn next(&mut self) {
+    fn next(&mut self) {
         self.index = (self.index + 1) % self.tabs.len();
     }
 
-    pub fn previous(&mut self) {
+    fn previous(&mut self) {
         if self.index > 0 {
             self.index -= 1;
         } else {
@@ -85,24 +103,41 @@ impl GooseberryTabs {
     }
 }
 
+/// Tab for displaying and editing a list of entries
+/// Also allows adding new ones
 pub struct GooseberryTab {
+    /// title of the Tab
     title: String,
+    /// type of entries listed
     entry_type: entry::GooseberryEntryType,
+    /// true => hides the longer descriptions
     fold: bool,
+    /// dict of entry_id: entry
     entries: HashMap<u64, entry::GooseberryEntry>,
+    /// which ids to display (TODO: use this when you add filtering options)
     visible_ids: Vec<u64>,
+    /// true if Tab is in writing mode
     is_writing: bool,
+    /// struct of text input boxes used in writing mode
     input_boxes: utility::interactive::InputBoxes,
+    /// id to use when a new entry is added
     next_id: u64,
+    /// folder in which entries are written
     folder: PathDir,
+    /// scroll index for the list display
     scroll: u16,
+    /// keeps track of the mode (editing/toggling task) (TODO: make this an enum)
     picking_char: Option<char>,
+    /// true => Insert-Name-Here is currently selecting an ID
     picking_entry: bool,
+    /// Entry ID entered
     selected_entry: u64,
+    /// if editing an entry, this stores the ID (TODO: add as a field to the `picking_char` enum)
     editing_id: Option<u64>,
 }
 
 impl GooseberryTab {
+    /// retrieve entries of a given type from a given folder
     pub fn from_folder(
         entry_type: entry::GooseberryEntryType,
         folder: &PathDir,
@@ -138,13 +173,26 @@ impl GooseberryTab {
         })
     }
 
-    pub fn get_layout(&self) -> Layout {
+    /// Makes the layout of the terminal based on the mode (writing/scrolling)
+    fn get_layout(&self) -> Layout {
+        let constraints = if self.is_writing {
+            self.input_boxes.get_constraints()
+        } else {
+            vec![
+                Constraint::Percentage(TAB_BOX_PERCENT),
+                Constraint::Percentage(100 - TAB_BOX_PERCENT - HELP_BOX_PERCENT),
+                Constraint::Percentage(HELP_BOX_PERCENT),
+            ]
+        };
         Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints(self.get_constraints().as_ref())
+            .constraints(constraints.as_ref())
     }
 
+    /// Renders the help box at the bottom with the keyboard shortcuts
+    /// Changes depending on the mode
+    /// TODO: Add a small box here which displays what's being typed during ID selection mode
     fn render_help_box(&self, frame: &mut utility::interactive::TuiFrame, chunk: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -164,6 +212,11 @@ impl GooseberryTab {
         }
     }
 
+    /// Renders the active tab
+    /// Tab bar
+    /// List of entries
+    /// Help box
+    /// if in writing mode then displays text input boxes
     pub fn render(&self, frame: &mut utility::interactive::TuiFrame, tabs: &mut Tabs<String>) {
         let size = frame.size();
         let chunks = self.get_layout().split(size);
@@ -183,6 +236,9 @@ impl GooseberryTab {
         self.render_help_box(frame, chunks[chunks.len() - 1]);
     }
 
+    /// Called when user inputs `t <id>[Enter]` in the Task tab
+    /// toggles the state of a Task entry (done/not done)
+    /// TODO: Restrict this to Task Tab
     fn toggle_task_entry(&mut self) -> Result<(), Error> {
         if self.entry_type == entry::GooseberryEntryType::Task {
             let t_entry =
@@ -200,7 +256,15 @@ impl GooseberryTab {
         Ok(())
     }
 
-    pub fn keypress(&mut self, key: KeyEvent) -> Result<bool, Error> {
+    /// Handles keyboard input
+    /// in scrolling mode:
+    ///     ^ v: scrolls
+    ///     n: starts/resumes writing mode
+    ///     \t: toggles folding
+    ///     e/t: starts ID entry mode
+    ///     0-9: if in ID entry mode, adds the digit to `self.selected_entry`
+    ///     \n: stops ID entry mode and executes e/t
+    pub fn keypress(&mut self, key: KeyEvent) {
         if self.is_writing {
             let (new_entry, stop_writing) = self.input_boxes.keypress(key);
             if let Some(new_entry) = new_entry {
@@ -217,6 +281,16 @@ impl GooseberryTab {
         } else {
             match key {
                 KeyEvent::Char(c) => match c {
+                    'n' => {
+                        self.input_boxes.start_writing();
+                        self.is_writing = true;
+                    }
+                    '\t' => self.toggle_fold(),
+                    't' | 'e' => {
+                        self.picking_char = Some(c);
+                        self.picking_entry = true;
+                        self.selected_entry = 0;
+                    }
                     '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' => {
                         if self.picking_entry {
                             if self.selected_entry > 0 {
@@ -239,17 +313,6 @@ impl GooseberryTab {
                         self.selected_entry = 0;
                         self.picking_char = None;
                     }
-                    'q' => return Ok(true),
-                    'n' => {
-                        self.input_boxes.start_writing();
-                        self.is_writing = true;
-                    }
-                    '\t' => self.toggle_fold(),
-                    't' | 'e' => {
-                        self.picking_char = Some(c);
-                        self.picking_entry = true;
-                        self.selected_entry = 0;
-                    }
                     _ => (),
                 },
                 KeyEvent::Down => self.scroll += 1,
@@ -261,25 +324,15 @@ impl GooseberryTab {
                 _ => (),
             }
         }
-        Ok(false)
     }
 
+    /// fold = true => short display (title, date, tags)
+    /// fold = false => displays everything
     pub fn toggle_fold(&mut self) {
         self.fold = !self.fold;
     }
 
-    fn get_constraints(&self) -> Vec<Constraint> {
-        if self.is_writing {
-            self.input_boxes.get_constraints()
-        } else {
-            vec![
-                Constraint::Percentage(TAB_BOX_PERCENT),
-                Constraint::Percentage(100 - TAB_BOX_PERCENT - HELP_BOX_PERCENT),
-                Constraint::Percentage(HELP_BOX_PERCENT),
-            ]
-        }
-    }
-
+    /// Retrieves styled texts to display
     fn get_texts(&self) -> Vec<Text> {
         self.visible_ids
             .iter()
@@ -293,6 +346,7 @@ impl GooseberryTab {
             .collect()
     }
 
+    /// Put an existing entry into text input boxes for editing
     fn edit_entry(&mut self) -> Result<(), Error> {
         self.input_boxes = self
             .entries
@@ -307,6 +361,7 @@ impl GooseberryTab {
         Ok(())
     }
 
+    /// Write entry to file
     fn save_entry(&self, id: u64) -> Result<(), Error> {
         self.entries
             .get(&id)
@@ -320,6 +375,7 @@ impl GooseberryTab {
         Ok(())
     }
 
+    /// Get an entry from input boxes after Ctrl-s in writing mode, save it to file
     fn add_entry(&mut self, boxes: Vec<utility::interactive::InputBox>, id: u64) -> Result<(), Error> {
         let new_entry =
             entry::GooseberryEntry::from_input_boxes(id, self.entry_type, boxes)?;

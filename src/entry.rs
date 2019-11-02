@@ -11,6 +11,9 @@ use crate::utility::{
     interactive::{InputBox, InputBoxes},
 };
 
+/// Enum to list the entry types
+/// Adding a new kind of entry seems needlessly complicated now
+/// TODO: Make it so that you only have to add a new struct and a line to the GooseberryEntry enum to add a new entry type
 #[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub enum GooseberryEntryType {
     Task,
@@ -19,6 +22,8 @@ pub enum GooseberryEntryType {
     Event,
 }
 
+/// formats and creates a file to save an entry
+/// <entry_type>_<entry_id>.md
 impl GooseberryEntryType {
     pub fn get_file(&self, folder: &PathDir, id: u64) -> Result<PathFile, Error> {
         Ok(PathFile::create(
@@ -27,6 +32,7 @@ impl GooseberryEntryType {
     }
 }
 
+/// For reading the entry type from the markdown metadata
 impl FromStr for GooseberryEntryType {
     type Err = Error;
 
@@ -44,6 +50,7 @@ impl FromStr for GooseberryEntryType {
     }
 }
 
+/// For displaying the tabs on the Tab bar
 impl fmt::Display for GooseberryEntryType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -55,21 +62,29 @@ impl fmt::Display for GooseberryEntryType {
     }
 }
 
+/// Trait to make a new kind of Entry type
 pub trait GooseberryEntryTrait: Sized {
+    /// Gets metadata from header and main description/notes content from lines
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error>;
+    /// Converts text input boxes to entry (This is a bit hacky and assumes an order for the boxes)
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
         boxes: Vec<InputBox>,
     ) -> Result<Self, Error>;
+    /// Puts contents of the entry into respective text input boxes for editing
     fn to_input_boxes(&self) -> InputBoxes;
     fn id(&self) -> u64;
     fn tags(&self) -> &[String];
     fn datetime(&self) -> &DateTime<Utc>;
     fn entry_type(&self) -> GooseberryEntryType;
+    /// Writes to file
     fn to_file(&self, filename: PathFile) -> Result<(), Error>;
+    /// Styles entry for short display (in fold mode)
     fn to_tui_short(&self) -> Result<Vec<Text>, Error>;
+    /// Styles entry for full display
     fn to_tui_long(&self) -> Result<Vec<Text>, Error>;
+    /// This metadata is common for all entries
     fn format_id_datetime_tags(&self) -> String {
         format!(
             "Type: {}\nID: {}\nDateTime: {}\nTags: {}",
@@ -87,9 +102,13 @@ pub trait GooseberryEntryTrait: Sized {
 
 #[derive(Debug)]
 pub enum GooseberryEntry {
+    /// Tasks/todos with an attached description
     Task(TaskEntry),
+    /// Short journal entries
     Journal(JournalEntry),
+    /// Long-form notes about a topic
     Research(ResearchEntry),
+    /// Meetings/Conferences etc. with other people/presenters
     Event(EventEntry),
 }
 
@@ -100,6 +119,7 @@ impl GooseberryEntry {
     }
 }
 
+/// This was a bit annoying - just calls the underlying variant's trait method for each trait method
 impl GooseberryEntryTrait for GooseberryEntry {
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let entry_type = (&header.get("Type").ok_or(Sorry::MissingHeaderElement {
@@ -215,6 +235,7 @@ impl GooseberryEntryTrait for GooseberryEntry {
     }
 }
 
+/// Reads metadata from markdown into a HashMap
 fn consume_markdown_header<'a>(
     lines: &mut Peekable<impl Iterator<Item = &'a str>>,
 ) -> Result<HashMap<String, String>, Error> {
@@ -242,6 +263,8 @@ fn consume_markdown_header<'a>(
 }
 
 impl GooseberryEntryType {
+    /// Gets the text input boxes for each entry type along with their desired percentages
+    /// Too hard-coded, this
     pub fn get_input_boxes(&self) -> InputBoxes {
         match self {
             GooseberryEntryType::Task => InputBoxes::new(vec![
@@ -268,6 +291,7 @@ impl GooseberryEntryType {
     }
 }
 
+/// Splits a markdown file into the metadata and the content
 pub fn get_header_lines(filename: &PathFile) -> Result<(HashMap<String, String>, String), Error> {
     let content = filename.read_string()?;
     let mut lines = content.split('\n').peekable();
@@ -276,6 +300,7 @@ pub fn get_header_lines(filename: &PathFile) -> Result<(HashMap<String, String>,
     Ok((header, lines))
 }
 
+/// Gets the ID, DateTime, and tags from a markdown header
 fn get_id_datetime_tags(
     header: &HashMap<String, String>,
 ) -> Result<(u64, DateTime<Utc>, Vec<String>), Error> {
@@ -308,12 +333,16 @@ fn get_id_datetime_tags(
     Ok((id, datetime, tags))
 }
 
+/// Entry type to store tasks/todos
 #[derive(Clone, Debug)]
 pub struct TaskEntry {
     pub id: u64,
+    /// Short one-liner on what to do
     pub task: String,
+    /// Longer markdown-formatted description on how to do it
     pub description: String,
     pub datetime: DateTime<Utc>,
+    /// state of completion
     pub done: bool,
     pub tags: Vec<String>,
 }
@@ -325,6 +354,7 @@ impl TaskEntry {
 }
 
 impl GooseberryEntryTrait for TaskEntry {
+    /// Extra metadata - the task and the task state
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
         let task = header
@@ -351,6 +381,8 @@ impl GooseberryEntryTrait for TaskEntry {
         })
     }
 
+    /// Assumes that the first box has the task, the second has the description, and the third has tags
+    /// TODO: Add something to store the state without having to toggle it in scrolling mode
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
@@ -379,6 +411,7 @@ impl GooseberryEntryTrait for TaskEntry {
         })
     }
 
+    /// Puts the contents into three text input boxes: task, description, and tags
     fn to_input_boxes(&self) -> InputBoxes {
         let mut input_boxes = self.entry_type().get_input_boxes();
         input_boxes.replace_content(0, &self.task);
@@ -416,6 +449,7 @@ impl GooseberryEntryTrait for TaskEntry {
         Ok(())
     }
 
+    /// Puts the task state symbol in between the ID and the task
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         let mark = if self.done {
             utility::formatting::TaskState::Done
@@ -431,6 +465,8 @@ impl GooseberryEntryTrait for TaskEntry {
         ))
     }
 
+    /// Adds the description to the short version
+    /// Delineates with --- TODO: This looks bad
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
         let mut styled_text = self.to_tui_short()?;
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(
@@ -441,21 +477,28 @@ impl GooseberryEntryTrait for TaskEntry {
     }
 }
 
+
+/// Short updates on things you do during the day
 #[derive(Clone, Debug)]
 pub struct JournalEntry {
     pub id: u64,
+    /// plain text, single line
     pub description: String,
     pub datetime: DateTime<Utc>,
     pub tags: Vec<String>,
 }
 
 impl JournalEntry {
+    /// Use this to group entries by day and only show the day once
+    /// No idea how yet
+    /// Probably have to move the entry printing loop as a function of GooseberryEntry (add to trait)
     fn date(&self) -> Date<Utc> {
         self.datetime.date()
     }
 }
 
 impl GooseberryEntryTrait for JournalEntry {
+    /// No extra metadata
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
         Ok(JournalEntry {
@@ -466,6 +509,8 @@ impl GooseberryEntryTrait for JournalEntry {
         })
     }
 
+    /// First box = description
+    /// Second box = tags
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
@@ -493,6 +538,8 @@ impl GooseberryEntryTrait for JournalEntry {
         })
     }
 
+    /// First box = description
+    /// Second box = tags
     fn to_input_boxes(&self) -> InputBoxes {
         let mut input_boxes = self.entry_type().get_input_boxes();
         input_boxes.replace_content(0, &self.description);
@@ -527,6 +574,8 @@ impl GooseberryEntryTrait for JournalEntry {
         Ok(())
     }
 
+    /// Right now, short and long are the same
+    /// TODO: Short returns nothing so you can see just the dates
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
             self.id,
@@ -537,6 +586,8 @@ impl GooseberryEntryTrait for JournalEntry {
         ))
     }
 
+    /// Right now, short and long are the same
+    /// TODO: Long returns what short currently has
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
         let mut styled_text = self.to_tui_short()?;
         styled_text.push(Text::Raw("\n---\n".into()));
@@ -544,6 +595,9 @@ impl GooseberryEntryTrait for JournalEntry {
     }
 }
 
+
+/// Long-form notes on an interesting topic
+/// e.g. textbook/course notes
 #[derive(Clone, Debug)]
 pub struct ResearchEntry {
     pub id: u64,
@@ -554,6 +608,7 @@ pub struct ResearchEntry {
 }
 
 impl GooseberryEntryTrait for ResearchEntry {
+    /// Title extra
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
         let title = header
@@ -572,6 +627,9 @@ impl GooseberryEntryTrait for ResearchEntry {
         })
     }
 
+    /// First box: title
+    /// Second box: notes
+    /// Third box: tags
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
@@ -599,6 +657,9 @@ impl GooseberryEntryTrait for ResearchEntry {
         })
     }
 
+    /// First box: title
+    /// Second box: notes
+    /// Third box: tags
     fn to_input_boxes(&self) -> InputBoxes {
         let mut input_boxes = self.entry_type().get_input_boxes();
         input_boxes.replace_content(0, &self.title);
@@ -635,6 +696,9 @@ impl GooseberryEntryTrait for ResearchEntry {
         Ok(())
     }
 
+    /// ID Title
+    /// DateTime
+    /// Tags
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
             self.id,
@@ -645,6 +709,8 @@ impl GooseberryEntryTrait for ResearchEntry {
         ))
     }
 
+    /// Adds notes to short
+    /// Delineates with ---
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
         let mut styled_text = self.to_tui_short()?;
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(
@@ -655,10 +721,13 @@ impl GooseberryEntryTrait for ResearchEntry {
     }
 }
 
+/// About a meeting or a conference presentation or a seminar etc.
 #[derive(Clone, Debug)]
 pub struct EventEntry {
     pub id: u64,
+    /// Title of the talk/meeting description
     pub title: String,
+    /// Who's involved/who's presenting
     pub people: Vec<String>,
     pub datetime: DateTime<Utc>,
     pub notes: String,
@@ -666,12 +735,14 @@ pub struct EventEntry {
 }
 
 impl EventEntry {
+    /// How to display a list of people
     fn format_people(&self) -> String {
         self.people.join(", ")
     }
 }
 
 impl GooseberryEntryTrait for EventEntry {
+    /// Title and people are extra
     fn from_header_lines(header: HashMap<String, String>, lines: String) -> Result<Self, Error> {
         let (id, datetime, tags) = get_id_datetime_tags(&header)?;
         let title = header
@@ -699,6 +770,10 @@ impl GooseberryEntryTrait for EventEntry {
         })
     }
 
+    /// First box: title
+    /// Second box: notes
+    /// Third box: people
+    /// Fourth box: tags
     fn from_input_boxes(
         id: u64,
         entry_type: GooseberryEntryType,
@@ -732,12 +807,16 @@ impl GooseberryEntryTrait for EventEntry {
         })
     }
 
+    /// First box: title
+    /// Second box: notes
+    /// Third box: people
+    /// Fourth box: tags
     fn to_input_boxes(&self) -> InputBoxes {
         let mut input_boxes = self.entry_type().get_input_boxes();
         input_boxes.replace_content(0, &self.title);
         input_boxes.replace_content(1, &self.notes);
         input_boxes.replace_content(2, &self.people.join(", "));
-        input_boxes.replace_content(2, &self.tags.join(", "));
+        input_boxes.replace_content(3, &self.tags.join(", "));
         input_boxes
     }
 
@@ -770,6 +849,9 @@ impl GooseberryEntryTrait for EventEntry {
         Ok(())
     }
 
+    /// ID Title
+    /// DateTime
+    /// tags
     fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
             self.id,
@@ -780,6 +862,10 @@ impl GooseberryEntryTrait for EventEntry {
         ))
     }
 
+    /// Short
+    /// People
+    /// Notes
+    /// Delineated by ---
     fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
         let mut styled_text = self.to_tui_short()?;
         styled_text.push(utility::formatting::style_people(&self.people));

@@ -10,10 +10,14 @@ use tui::{
     widgets::Text,
 };
 
+/// TODO: Make these configurable
 pub const HEADER_MARK: &str = "---";
 pub const DONE: char = '\u{2713}';
 pub const NOT_DONE: char = '\u{2715}';
+pub const SYNTAX_THEME: &str = "base16-ocean.dark";
 
+/// Task states
+/// TODO: I guess running/canceled can be some new ones
 #[derive(Copy, Debug, Clone)]
 pub enum TaskState {
     Done,
@@ -21,6 +25,7 @@ pub enum TaskState {
 }
 
 impl TaskState {
+    /// Unicode symbol for task states
     fn symbol(self) -> char {
         match self {
             TaskState::Done => '\u{2713}',
@@ -28,6 +33,8 @@ impl TaskState {
         }
     }
 
+    /// Color for task states
+    /// TODO: Make all colors configurable
     fn color(self) -> TuiColor {
         match self {
             TaskState::Done => TuiColor::Green,
@@ -35,6 +42,7 @@ impl TaskState {
         }
     }
 
+    /// Put the color onto the symbol
     fn styled_symbol<'a>(self) -> Text<'a> {
         Text::Styled(
             format!("{} ", self.symbol()).into(),
@@ -44,13 +52,20 @@ impl TaskState {
 }
 
 lazy_static! {
-    static ref SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_newlines();
+    /// Load theme sets
+    /// TODO: Save to file maybe?
     static ref THEME_SET: ThemeSet = ThemeSet::load_defaults();
-    static ref THEME: &'static Theme = &THEME_SET.themes["base16-ocean.dark"];
+    /// Load selected highlighting style
+    static ref THEME: &'static Theme = &THEME_SET.themes[SYNTAX_THEME];
+    /// Load syntax sets
+    static ref SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_newlines();
+    /// Load markdown syntax set
     static ref MD_SYNTAX: &'static SyntaxReference =
         SYNTAX_SET.find_syntax_by_extension("markdown").unwrap();
 }
 
+/// Convert from `syntect`'s FontStyle to `tui`'s Modifier
+/// Reminder: `tui` doesn't have some of the options
 fn syntect_to_tui_modifier(syntect_modifier: FontStyle) -> Modifier {
     let mut modifier = Modifier::empty();
     if syntect_modifier.contains(FontStyle::BOLD) {
@@ -65,6 +80,7 @@ fn syntect_to_tui_modifier(syntect_modifier: FontStyle) -> Modifier {
     modifier
 }
 
+/// Convert a markdown-formatted string to a list of `tui` Text::styled objects
 pub fn markdown_to_styled_texts(markdown_text: &str) -> Vec<Text> {
     let mut styled_texts = Vec::new();
     let mut highlighter = HighlightLines::new(&MD_SYNTAX, &THEME);
@@ -79,6 +95,7 @@ pub fn markdown_to_styled_texts(markdown_text: &str) -> Vec<Text> {
     styled_texts
 }
 
+/// Add Modifier::DIM to each Text
 fn dim(markdown: Vec<Text>) -> Vec<Text> {
     markdown
         .into_iter()
@@ -92,6 +109,7 @@ fn dim(markdown: Vec<Text>) -> Vec<Text> {
         .collect()
 }
 
+/// Convert `syntect`'s Style to `tui`'s Style
 fn syntect_to_tui_style(syntect_style: SyntectStyle) -> TuiStyle {
     TuiStyle {
         fg: TuiColor::Rgb(
@@ -108,6 +126,7 @@ fn syntect_to_tui_style(syntect_style: SyntectStyle) -> TuiStyle {
     }
 }
 
+/// Add Style to a title with optional Task state
 fn style_title(id: u64, title: &str, mark: Option<TaskState>) -> Vec<Text> {
     let mut texts = vec![Text::raw(format!("{} ", id))];
     if let Some(state) = mark {
@@ -120,6 +139,8 @@ fn style_title(id: u64, title: &str, mark: Option<TaskState>) -> Vec<Text> {
     texts
 }
 
+/// Style the date and time
+/// TODO: Configurable color
 fn style_datetime(datetime: &DateTime<Utc>) -> Text {
     Text::styled(
         format!("{}\n", datetime.format("%v %r")),
@@ -127,6 +148,7 @@ fn style_datetime(datetime: &DateTime<Utc>) -> Text {
     )
 }
 
+/// TODO: Configurable color
 fn style_tags(tags: &[String]) -> Text {
     Text::styled(
         format!("{}\n", tags.join(", ")),
@@ -134,6 +156,20 @@ fn style_tags(tags: &[String]) -> Text {
     )
 }
 
+/// TODO: Configurable color
+pub fn style_people(people: &[String]) -> Text {
+    Text::styled(
+        format!("{}\n", people.join(", ")),
+        TuiStyle::default()
+            .fg(TuiColor::LightRed)
+            .modifier(Modifier::BOLD),
+    )
+}
+
+/// Style an entry for short display
+/// ID <task state> Title
+/// Date Time
+/// Tags
 pub fn style_short<'a>(
     id: u64,
     title: &'a str,
@@ -147,15 +183,9 @@ pub fn style_short<'a>(
     texts
 }
 
-pub fn style_people(people: &[String]) -> Text {
-    Text::styled(
-        format!("{}\n", people.join(", ")),
-        TuiStyle::default()
-            .fg(TuiColor::LightRed)
-            .modifier(Modifier::BOLD),
-    )
-}
-
+/// Add a fake cursor
+/// Couldn't figure out how to get the real cursor where we need it
+/// TODO: Configurable color
 pub fn cursor<'a>() -> Text<'a> {
     Text::Styled(
         "|".into(),
