@@ -76,18 +76,18 @@ impl GooseberryTabs {
     /// left and right arrow keys change the active tab
     /// `q` in scrolling mode returns true (to exit the app)
     /// Everything else is handled by the active tab's keypress function
-    pub fn keypress(&mut self, key: KeyEvent) -> bool {
+    pub fn keypress(&mut self, key: KeyEvent) -> Result<bool, Error> {
         if !self.is_writing() {
             match key {
-                KeyEvent::Char('q') => return true,
+                KeyEvent::Char('q') => return Ok(true),
                 KeyEvent::Right => self.next(),
                 KeyEvent::Left => self.previous(),
-                _key => self.tabs[self.index].keypress(_key),
+                _key => self.tabs[self.index].keypress(_key)?,
             }
         } else {
-            self.tabs[self.index].keypress(key);
+            self.tabs[self.index].keypress(key)?;
         }
-        false
+        Ok(false)
     }
 
     fn next(&mut self) {
@@ -192,7 +192,7 @@ impl GooseberryTab {
 
     /// Renders the help box at the bottom with the keyboard shortcuts
     /// Changes depending on the mode
-    /// TODO: Add a small box here which displays what's being typed during ID selection mode
+    /// TODO: Add a small box here which displays what's being typed during ID entry mode
     fn render_help_box(&self, frame: &mut utility::interactive::TuiFrame, chunk: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -260,11 +260,11 @@ impl GooseberryTab {
     /// in scrolling mode:
     ///     ^ v: scrolls
     ///     n: starts/resumes writing mode
-    ///     \t: toggles folding
+    ///     `\t`: toggles folding
     ///     e/t: starts ID entry mode
     ///     0-9: if in ID entry mode, adds the digit to `self.selected_entry`
-    ///     \n: stops ID entry mode and executes e/t
-    pub fn keypress(&mut self, key: KeyEvent) {
+    ///     `\n`: stops ID entry mode and executes e/t
+    pub fn keypress(&mut self, key: KeyEvent) -> Result<(), Error> {
         if self.is_writing {
             let (new_entry, stop_writing) = self.input_boxes.keypress(key);
             if let Some(new_entry) = new_entry {
@@ -324,6 +324,7 @@ impl GooseberryTab {
                 _ => (),
             }
         }
+        Ok(())
     }
 
     /// fold = true => short display (title, date, tags)
@@ -332,7 +333,7 @@ impl GooseberryTab {
         self.fold = !self.fold;
     }
 
-    /// Retrieves styled texts to display
+    /// Retrieves styled texts to display (TODO: move this to GooseberryEntry so you have more control)
     fn get_texts(&self) -> Vec<Text> {
         self.visible_ids
             .iter()
