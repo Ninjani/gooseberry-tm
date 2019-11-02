@@ -13,11 +13,10 @@ use tui::{backend::CrosstermBackend, Terminal};
 
 pub mod entry;
 pub mod errors;
-pub mod gooseberry_app;
+pub mod app;
 pub mod utility;
 
-/// Shake the box
-fn gooseberry() -> Result<(), Error> {
+fn main() -> Result<(), Error> {
     // Terminal initialization
     let screen = AlternateScreen::to_alternate(true)?;
     let backend = CrosstermBackend::with_alternate_screen(screen)?;
@@ -28,30 +27,25 @@ fn gooseberry() -> Result<(), Error> {
     let events = utility::interactive::Events::default();
 
     // App
-    let mut app = gooseberry_app::GooseberryTabs::from_folder(&PathDir::new("test_entries")?)?;
+    let mut gooseberry = app::GooseberryTabs::from_folder(&PathDir::new("test_entries")?)?;
     terminal.clear()?;
 
     // Main rendering loop
     loop {
-        terminal.draw(|mut f| app.render(&mut f))?;
+        terminal.draw(|mut f| gooseberry.render(&mut f))?;
 
         // flush immediately so that you see each character as you type
-        if app.is_writing() {
+        if gooseberry.is_writing() {
             io::stdout().flush().ok();
         }
 
         // Handle keyboard input
         if let Ok(utility::interactive::Event::Input(key)) = events.next() {
-            let should_break = app.keypress(key)?;
+            let should_break = gooseberry.keypress(key)?;
             if should_break {
                 break;
             }
         }
     }
-    Ok(())
-}
-
-fn main() -> Result<(), Error> {
-    gooseberry()?;
     Ok(())
 }

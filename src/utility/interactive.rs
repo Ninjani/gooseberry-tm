@@ -8,7 +8,7 @@ use tui::{
     widgets::{Block, Borders, Paragraph, Text, Widget},
 };
 
-use crate::gooseberry_app::{HELP_BOX_PERCENT, TAB_BOX_PERCENT};
+use crate::app::{HELP_BOX_PERCENT, TAB_BOX_PERCENT};
 use crate::utility;
 
 pub type TuiFrame<'a> = Frame<'a, CrosstermBackend>;
