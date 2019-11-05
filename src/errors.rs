@@ -9,7 +9,7 @@ pub enum Sorry {
     )]
     UnknownEntryType { entry_type: String },
     #[error("Entry {entry_type:?}_{entry_id:?} hasn't been written yet")]
-    WrongEntryID {
+    MissingEntryID {
         entry_type: GooseberryEntryType,
         entry_id: u64,
     },

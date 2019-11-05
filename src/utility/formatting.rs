@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{Date, DateTime, NaiveTime, Utc};
 use syntect::{
     easy::HighlightLines,
     highlighting::{FontStyle, Style as SyntectStyle, Theme, ThemeSet},
@@ -139,10 +139,29 @@ fn style_title(id: u64, title: &str, mark: Option<TaskState>) -> Vec<Text> {
     texts
 }
 
+fn format_date(date: Date<Utc>) -> String {
+    format!("{}", date.format("%b %d %Y"))
+}
+
+fn format_time(time: NaiveTime) -> String {
+    format!("{}", time.format("%r"))
+}
+
+fn format_datetime(datetime: DateTime<Utc>) -> String {
+    format!("{}", datetime.format("%r %a %b %d %Y"))
+}
+
 /// Style the date and time
-fn style_datetime(datetime: &DateTime<Utc>) -> Text {
+fn style_datetime(datetime: &DateTime<Utc>, date_only: bool, time_only: bool) -> Text {
+    let datetime_formatted = if date_only {
+        format_date(datetime.date())
+    } else if time_only {
+        format_time(datetime.time())
+    } else {
+        format_datetime(*datetime)
+    };
     Text::styled(
-        format!("{}\n", datetime.format("%v %r")),
+        format!("{}\n", datetime_formatted),
         TuiStyle::default().fg(CONFIG.datetime_color),
     )
 }
@@ -154,11 +173,10 @@ fn style_tags(tags: &[String]) -> Text {
     )
 }
 
-pub fn style_people(people: &[String]) -> Text {
+pub(crate) fn style_people(people: &[String]) -> Text {
     Text::styled(
         format!("{}\n", people.join(", ")),
-        TuiStyle::default()
-            .fg(CONFIG.people_color)
+        TuiStyle::default().fg(CONFIG.people_color),
     )
 }
 
@@ -166,22 +184,38 @@ pub fn style_people(people: &[String]) -> Text {
 /// ID <task state> Title
 /// Date Time
 /// Tags
-pub fn style_short<'a>(
+pub(crate) fn style_short<'a>(
     id: u64,
     title: &'a str,
     mark: Option<TaskState>,
     datetime: &'a DateTime<Utc>,
     tags: &'a [String],
+    date_only: bool,
+    time_only: bool,
 ) -> Vec<Text<'a>> {
     let mut texts = style_title(id, title, mark);
-    texts.push(style_datetime(datetime));
+    texts.push(style_datetime(datetime, date_only, time_only));
     texts.push(style_tags(tags));
     texts
 }
 
+pub(crate) fn style_date_num_entries<'a>(date: Date<Utc>, num_entries: usize) -> Vec<Text<'a>> {
+    let entry_text = if num_entries > 1 { "entries" } else { "entry" };
+    vec![
+        Text::styled(
+            format_date(date),
+            TuiStyle::default().fg(CONFIG.datetime_color),
+        ),
+        Text::styled(
+            format!(":    {} journal {}\n", num_entries, entry_text),
+            TuiStyle::default().fg(CONFIG.people_color),
+        ),
+    ]
+}
+
 /// Add a fake cursor
 /// Couldn't figure out how to get the real cursor where we need it
-pub fn cursor<'a>() -> Text<'a> {
+pub(crate) fn cursor<'a>() -> Text<'a> {
     Text::Styled(
         CONFIG.cursor_char.to_string().into(),
         TuiStyle::default()

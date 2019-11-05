@@ -14,8 +14,6 @@ use crate::{entry, utility, utility::config::CONFIG};
 use crate::entry::GooseberryEntryTrait;
 use crate::errors::Sorry;
 
-//use directories::ProjectDirs;
-
 /// Keyboard shortcuts in scrolling mode
 const HELP_TEXT: &str =
     "< > : change tabs, ^ v : scroll, n : new entry/resume editing, \
@@ -128,14 +126,14 @@ pub struct GooseberryTab {
     folder: PathDir,
     /// scroll index for the list display
     scroll: u16,
-    /// keeps track of the mode (editing/toggling task) (TODO: make this an enum)
+    /// keeps track of the mode (editing/toggling task/deleting) (TODO: make this an enum)
     picking_char: Option<char>,
     /// true => Insert-Name-Here is currently selecting an ID
     picking_entry: bool,
     /// Entry ID entered
     selected_entry: u64,
-    /// if editing an entry, this stores the ID (TODO: add as a field to the `picking_char` enum)
-    editing_id: Option<u64>,
+    /// if editing an entry, this stores the old entry (TODO: add as a field to the `picking_char` enum)
+    editing_entry: Option<entry::GooseberryEntry>,
 }
 
 impl GooseberryTab {
@@ -169,7 +167,7 @@ impl GooseberryTab {
             entry_type,
             scroll: 0,
             selected_entry: 0,
-            editing_id: None,
+            editing_entry: None,
             picking_entry: false,
             picking_char: None,
         })
@@ -199,15 +197,10 @@ impl GooseberryTab {
         let block = Block::default()
             .borders(Borders::ALL)
             .title_style(Style::default().modifier(Modifier::BOLD));
-//        let project_dirs = ProjectDirs::from("rs", "gooseberry-tm", "gooseberry-tm").unwrap();
-//        let config_dir = project_dirs.config_dir();
-//        let config_file = format!("{}/gooseberry-tm.toml", config_dir.to_str().unwrap());
         let text = if self.is_writing {
             WRITING_HELP_TEXT
-//            format!("{}\nChange colors at {}", WRITING_HELP_TEXT, config_file)
         } else {
             HELP_TEXT
-//            format!("{}\nChange colors at {}", HELP_TEXT, config_file)
         };
         Paragraph::new(vec![Text::Raw(text.into())].iter())
             .block(block)
@@ -225,7 +218,15 @@ impl GooseberryTab {
         let size = frame.size();
         let chunks = self.get_layout().split(size);
         tabs.render(frame, chunks[0]);
-        Paragraph::new(self.get_texts().iter())
+        Paragraph::new(
+            entry::GooseberryEntry::entries_to_styled_texts_same_type(
+                &self.entries,
+                &self.visible_ids,
+                self.fold,
+            )
+                .unwrap()
+                .iter(),
+        )
             .block(Block::default().borders(Borders::ALL))
             .alignment(Alignment::Left)
             .scroll(self.scroll)
@@ -245,7 +246,7 @@ impl GooseberryTab {
             let t_entry =
                 self.entries
                     .get_mut(&self.selected_entry)
-                    .ok_or(Sorry::WrongEntryID {
+                    .ok_or(Sorry::MissingEntryID {
                         entry_type: self.entry_type,
                         entry_id: self.selected_entry,
                     })?;
@@ -262,15 +263,16 @@ impl GooseberryTab {
     ///     ^ v: scrolls
     ///     n: starts/resumes writing mode
     ///     `\t`: toggles folding
-    ///     e/t: starts ID entry mode
+    ///     e/t/d: starts ID entry mode
     ///     0-9: if in ID entry mode, adds the digit to `self.selected_entry`
-    ///     `\n`: stops ID entry mode and executes e/t
+    ///     `\n`: stops ID entry mode and executes e/t/d
     pub fn keypress(&mut self, key: KeyEvent) -> Result<(), Error> {
         if self.is_writing {
             let (new_entry, stop_writing) = self.input_boxes.keypress(key);
             if let Some(new_entry) = new_entry {
-                if let Some(id) = self.editing_id {
-                    self.add_entry(new_entry, id)?;
+                if self.editing_entry.is_some() {
+                    self.merge_entry(new_entry)?;
+                    self.editing_entry = None;
                 } else {
                     self.add_entry(new_entry, self.next_id)?;
                     self.next_id += 1;
@@ -287,7 +289,7 @@ impl GooseberryTab {
                         self.is_writing = true;
                     }
                     '\t' => self.toggle_fold(),
-                    't' | 'e' => {
+                    't' | 'e' | 'd' => {
                         self.picking_char = Some(c);
                         self.picking_entry = true;
                         self.selected_entry = 0;
@@ -306,7 +308,8 @@ impl GooseberryTab {
                         if let Some(c) = self.picking_char {
                             match c {
                                 't' => self.toggle_task_entry()?,
-                                'e' => self.edit_entry()?,
+                                'e' => self.start_editing()?,
+                                'd' => self.delete_entry(self.selected_entry)?,
                                 _ => (),
                             }
                         }
@@ -330,38 +333,23 @@ impl GooseberryTab {
 
     /// fold = true => short display (title, date, tags)
     /// fold = false => displays everything
-    /// sets scroll back to 0 when toggling fold (TODO: not sure if this makes sense)
     pub fn toggle_fold(&mut self) {
         self.fold = !self.fold;
-        self.scroll = 0;
-    }
-
-    /// Retrieves styled texts to display (TODO: move this to GooseberryEntry so you have more control)
-    fn get_texts(&self) -> Vec<Text> {
-        self.visible_ids
-            .iter()
-            .flat_map(|i| {
-                if self.fold {
-                    self.entries[&i].to_tui_short().unwrap()
-                } else {
-                    self.entries[&i].to_tui_long().unwrap()
-                }
-            })
-            .collect()
     }
 
     /// Put an existing entry into text input boxes for editing
-    fn edit_entry(&mut self) -> Result<(), Error> {
-        self.input_boxes = self
+    fn start_editing(&mut self) -> Result<(), Error> {
+        let entry = self
             .entries
             .get(&self.selected_entry)
-            .ok_or(Sorry::WrongEntryID {
+            .ok_or(Sorry::MissingEntryID {
                 entry_type: self.entry_type,
                 entry_id: self.selected_entry,
             })?
-            .to_input_boxes();
+            .clone();
+        self.input_boxes = entry.to_input_boxes();
         self.is_writing = true;
-        self.editing_id = Some(self.selected_entry);
+        self.editing_entry = Some(entry);
         Ok(())
     }
 
@@ -369,13 +357,26 @@ impl GooseberryTab {
     fn save_entry(&self, id: u64) -> Result<(), Error> {
         self.entries
             .get(&id)
-            .ok_or(Sorry::WrongEntryID {
+            .ok_or(Sorry::MissingEntryID {
                 entry_type: self.entry_type,
                 entry_id: id,
             })?
             .to_file(PathFile::create(
                 self.entry_type.get_file(&self.folder, id)?,
             )?)?;
+        Ok(())
+    }
+
+    /// Get an entry from input boxes after Ctrl-s in writing mode, merge it with the previous, save it to file
+    fn merge_entry(&mut self, boxes: Vec<utility::interactive::InputBox>) -> Result<(), Error> {
+        let editing_entry = self.editing_entry.as_ref().ok_or(Sorry::OutOfCheeseError {
+            message: "I already checked that this is_some but is_none!".into(),
+        })?;
+        let id = editing_entry.id();
+        let mut new_entry = entry::GooseberryEntry::from_input_boxes(id, self.entry_type, boxes)?;
+        new_entry.merge_with_entry(editing_entry);
+        self.entries.insert(id, new_entry);
+        self.save_entry(id)?;
         Ok(())
     }
 
@@ -386,10 +387,24 @@ impl GooseberryTab {
         id: u64,
     ) -> Result<(), Error> {
         let new_entry = entry::GooseberryEntry::from_input_boxes(id, self.entry_type, boxes)?;
-        if self.entries.insert(id, new_entry).is_none() {
-            self.visible_ids.push(id);
-        }
+        self.entries.insert(id, new_entry);
+        self.visible_ids.push(id);
         self.save_entry(id)?;
+        Ok(())
+    }
+
+    /// Deletes an entry
+    fn delete_entry(&mut self, id: u64) -> Result<(), Error> {
+        if !self.entries.contains_key(&id) {
+            return Err(Sorry::MissingEntryID {
+                entry_type: self.entry_type,
+                entry_id: id,
+            }
+                .into());
+        }
+        self.entries.remove(&id);
+        self.visible_ids.remove_item(&id);
+        self.entry_type.get_file(&self.folder, id)?.remove()?;
         Ok(())
     }
 }

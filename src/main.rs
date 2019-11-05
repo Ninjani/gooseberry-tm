@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![feature(vec_remove_item)]
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -11,9 +12,9 @@ use crossterm::AlternateScreen;
 use path_abs::PathDir;
 use tui::{backend::CrosstermBackend, Terminal};
 
+pub mod app;
 pub mod entry;
 pub mod errors;
-pub mod app;
 pub mod utility;
 
 fn main() -> Result<(), Error> {
