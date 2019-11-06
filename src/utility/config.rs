@@ -32,11 +32,9 @@ enum GooseberryColor {
 pub struct GooseberryConfig {
     pub syntax_theme: String,
     #[serde(with = "GooseberryColor")]
-    pub datetime_color: Color,
+    pub primary_metadata_color: Color,
     #[serde(with = "GooseberryColor")]
-    pub tags_color: Color,
-    #[serde(with = "GooseberryColor")]
-    pub people_color: Color,
+    pub secondary_metadata_color: Color,
     pub cursor_char: char,
     #[serde(with = "GooseberryColor")]
     pub cursor_color: Color,
@@ -50,9 +48,8 @@ impl Default for GooseberryConfig {
     fn default() -> Self {
         Self {
             syntax_theme: "base16-ocean.dark".into(),
-            datetime_color: Color::LightBlue,
-            tags_color: Color::Green,
-            people_color: Color::Blue,
+            primary_metadata_color: Color::Blue,
+            secondary_metadata_color: Color::Green,
             cursor_char: '|',
             cursor_color: Color::Gray,
             tab_inactive_color: Color::LightGreen,

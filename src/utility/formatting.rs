@@ -9,6 +9,7 @@ use tui::{
     style::{Color as TuiColor, Modifier, Style as TuiStyle},
     widgets::Text,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::utility::config::CONFIG;
 
@@ -127,14 +128,21 @@ fn syntect_to_tui_style(syntect_style: SyntectStyle) -> TuiStyle {
 }
 
 /// Add Style to a title with optional Task state
-fn style_title(id: u64, title: &str, mark: Option<TaskState>) -> Vec<Text> {
-    let mut texts = vec![Text::raw(format!("{} ", id))];
+fn style_title(id: u64, title: &str, mark: Option<TaskState>, terminal_width: u16, bold: bool) -> Vec<Text> {
+    let mut texts = Vec::new();
+    let mut terminal_width = terminal_width;
     if let Some(state) = mark {
         texts.push(state.styled_symbol());
+        terminal_width -= 2;
     }
+    let modifier = if bold {
+        Modifier::ITALIC | Modifier::BOLD
+    } else {
+        Modifier::ITALIC
+    };
     texts.push(Text::styled(
-        format!("{}\n", title.trim()),
-        TuiStyle::default().modifier(Modifier::ITALIC),
+        right_format(title.trim(), &format!("{}", id), terminal_width, false),
+        TuiStyle::default().modifier(modifier),
     ));
     texts
 }
@@ -151,8 +159,15 @@ fn format_datetime(datetime: DateTime<Utc>) -> String {
     format!("{}", datetime.format("%r %a %b %d %Y"))
 }
 
-/// Style the date and time
-fn style_datetime(datetime: &DateTime<Utc>, date_only: bool, time_only: bool) -> Text {
+pub(crate) fn style_people(people: &[String]) -> Text {
+    Text::styled(
+        format!("{}\n", people.join(", ")),
+        TuiStyle::default().fg(CONFIG.secondary_metadata_color),
+    )
+}
+
+/// Style datetime and tags on same line, tags on left, date on right
+fn style_datetime_tags<'a>(datetime: &'a DateTime<Utc>, tags: &'a [String], terminal_width: u16, date_only: bool, time_only: bool) -> Text<'a> {
     let datetime_formatted = if date_only {
         format_date(datetime.date())
     } else if time_only {
@@ -161,22 +176,8 @@ fn style_datetime(datetime: &DateTime<Utc>, date_only: bool, time_only: bool) ->
         format_datetime(*datetime)
     };
     Text::styled(
-        format!("{}\n", datetime_formatted),
-        TuiStyle::default().fg(CONFIG.datetime_color),
-    )
-}
-
-fn style_tags(tags: &[String]) -> Text {
-    Text::styled(
-        format!("{}\n", tags.join(", ")),
-        TuiStyle::default().fg(CONFIG.tags_color),
-    )
-}
-
-pub(crate) fn style_people(people: &[String]) -> Text {
-    Text::styled(
-        format!("{}\n", people.join(", ")),
-        TuiStyle::default().fg(CONFIG.people_color),
+        right_format(&tags.join(","), &datetime_formatted, terminal_width, true),
+        TuiStyle::default().fg(CONFIG.primary_metadata_color),
     )
 }
 
@@ -190,27 +191,21 @@ pub(crate) fn style_short<'a>(
     mark: Option<TaskState>,
     datetime: &'a DateTime<Utc>,
     tags: &'a [String],
+    terminal_width: u16,
     date_only: bool,
     time_only: bool,
+    bold_title: bool
 ) -> Vec<Text<'a>> {
-    let mut texts = style_title(id, title, mark);
-    texts.push(style_datetime(datetime, date_only, time_only));
-    texts.push(style_tags(tags));
+    let mut texts = style_title(id, title, mark, terminal_width, bold_title);
+    texts.push(style_datetime_tags(datetime, tags, terminal_width, date_only, time_only));
     texts
 }
 
-pub(crate) fn style_date_num_entries<'a>(date: Date<Utc>, num_entries: usize, terminal_width: u16) -> Vec<Text<'a>> {
+pub(crate) fn style_date_num_entries<'a>(date: Date<Utc>, num_entries: usize, terminal_width: u16) -> Text<'a> {
     let entry_text = if num_entries > 1 { "entries" } else { "entry" };
-    vec![
-        Text::styled(
-            format_date(date),
-            TuiStyle::default().fg(CONFIG.datetime_color),
-        ),
-        Text::styled(
-            format!(":    {} journal {}\n", num_entries, entry_text),
-            TuiStyle::default().fg(CONFIG.people_color),
-        ),
-    ]
+    Text::styled(right_format(&format_date(date),
+                              &format!("{} {}", num_entries, entry_text), terminal_width, true),
+                 TuiStyle::default().fg(CONFIG.secondary_metadata_color).modifier(Modifier::BOLD))
 }
 
 /// Add a fake cursor
@@ -226,13 +221,20 @@ pub(crate) fn cursor<'a>() -> Text<'a> {
 
 /// Adds text to an existing string but on the right. If there's not enough
 /// space in the terminal to do that with at least one space in the middle
-/// then puts the new_text on the next line (left formatted)
-fn right_format(text: &str, new_text: &str, terminal_width: u16) -> String {
+/// then puts the new_text on the next line (on the left if left_too_long else right)
+fn right_format(text: &str, new_text: &str, terminal_width: u16, left_too_long: bool) -> String {
     let terminal_width = terminal_width as usize;
-    if terminal_width < text.len() + new_text.len() + 1 {
-        format!("{}\n{}\n", text, new_text)
+    let text_len = UnicodeWidthStr::width(text);
+    let new_text_len = UnicodeWidthStr::width(new_text);
+    if terminal_width < text_len + new_text_len + 1 {
+        if left_too_long {
+            format!("{}\n{}\n", text, new_text)
+        } else {
+            format!("{}\n{}", text, right_format("", new_text, terminal_width as u16, true))
+        }
+
     } else {
-        let num_spaces = terminal_width - text.len() - new_text.len();
+        let num_spaces = terminal_width - text_len - new_text_len;
         format!(
             "{}{}{}\n",
             text,

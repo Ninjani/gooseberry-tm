@@ -174,10 +174,11 @@ impl GooseberryEntry {
                 for date in dates {
                     let entries = dates_to_entries.get(&date);
                     if let Some(entries) = entries {
-                        styled_texts.extend_from_slice(
-                            &utility::formatting::style_date_num_entries(date, entries.len(), terminal_width),
+                        styled_texts.push(
+                            utility::formatting::style_date_num_entries(date, entries.len(), terminal_width),
                         );
                         if !fold {
+//                            styled_texts.push(Text::Raw("\n".into()));
                             for entry in entries {
                                 styled_texts.extend_from_slice(&entry.to_tui_long(terminal_width)?);
                             }
@@ -557,8 +558,10 @@ impl GooseberryEntryTrait for TaskEntry {
             Some(mark),
             &self.datetime,
             &self.tags,
+            terminal_width,
             false,
             false,
+            true,
         ))
     }
 
@@ -684,8 +687,10 @@ impl GooseberryEntryTrait for JournalEntry {
             None,
             &self.datetime,
             &self.tags,
+            terminal_width,
             false,
             true,
+            false,
         ))
     }
 
@@ -811,8 +816,10 @@ impl GooseberryEntryTrait for ResearchEntry {
             None,
             &self.datetime,
             &self.tags,
+            terminal_width,
             true,
             false,
+            true,
         ))
     }
 
@@ -972,8 +979,10 @@ impl GooseberryEntryTrait for EventEntry {
             None,
             &self.datetime,
             &self.tags,
+            terminal_width,
             false,
             false,
+            true,
         ))
     }
 

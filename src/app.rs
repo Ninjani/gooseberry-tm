@@ -223,7 +223,7 @@ impl GooseberryTab {
                 &self.entries,
                 &self.visible_ids,
                 self.fold,
-                frame.size().width
+                frame.size().width - 5
             )
                 .unwrap()
                 .iter(),
