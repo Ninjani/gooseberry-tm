@@ -81,9 +81,9 @@ pub trait GooseberryEntryTrait: Sized {
     /// Writes to file
     fn to_file(&self, filename: PathFile) -> Result<(), Error>;
     /// Styles entry for short display (in fold mode)
-    fn to_tui_short(&self) -> Result<Vec<Text>, Error>;
+    fn to_tui_short(&self, terminal_width: u16) -> Result<Vec<Text>, Error>;
     /// Styles entry for full display
-    fn to_tui_long(&self) -> Result<Vec<Text>, Error>;
+    fn to_tui_long(&self, terminal_width: u16) -> Result<Vec<Text>, Error>;
     fn merge_with_entry(&mut self, old_entry: &Self);
     /// This metadata is common for all entries
     fn format_id_datetime_tags(&self) -> String {
@@ -125,6 +125,7 @@ impl GooseberryEntry {
         entries: &'a HashMap<u64, Self>,
         visible_ids: &'a [u64],
         fold: bool,
+        terminal_width: u16
     ) -> Result<Vec<Text<'a>>, Error> {
         let mut keys = visible_ids.to_vec();
         keys.sort_by(|a, b| entries[a].datetime().cmp(entries[b].datetime()));
@@ -142,9 +143,9 @@ impl GooseberryEntry {
                 .iter()
                 .map(|key| {
                     if fold {
-                        entries[key].to_tui_short()
+                        entries[key].to_tui_short(terminal_width)
                     } else {
-                        entries[key].to_tui_long()
+                        entries[key].to_tui_long(terminal_width)
                     }
                 })
                 .collect::<Result<Vec<_>, Error>>()?
@@ -174,11 +175,11 @@ impl GooseberryEntry {
                     let entries = dates_to_entries.get(&date);
                     if let Some(entries) = entries {
                         styled_texts.extend_from_slice(
-                            &utility::formatting::style_date_num_entries(date, entries.len()),
+                            &utility::formatting::style_date_num_entries(date, entries.len(), terminal_width),
                         );
                         if !fold {
                             for entry in entries {
-                                styled_texts.extend_from_slice(&entry.to_tui_long()?);
+                                styled_texts.extend_from_slice(&entry.to_tui_long(terminal_width)?);
                             }
                         }
                     }
@@ -286,21 +287,21 @@ impl GooseberryEntryTrait for GooseberryEntry {
         }
     }
 
-    fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
+    fn to_tui_short(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
         match self {
-            GooseberryEntry::Task(e) => e.to_tui_short(),
-            GooseberryEntry::Journal(e) => e.to_tui_short(),
-            GooseberryEntry::Event(e) => e.to_tui_short(),
-            GooseberryEntry::Research(e) => e.to_tui_short(),
+            GooseberryEntry::Task(e) => e.to_tui_short(terminal_width),
+            GooseberryEntry::Journal(e) => e.to_tui_short(terminal_width),
+            GooseberryEntry::Event(e) => e.to_tui_short(terminal_width),
+            GooseberryEntry::Research(e) => e.to_tui_short(terminal_width),
         }
     }
 
-    fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
+    fn to_tui_long(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
         match self {
-            GooseberryEntry::Task(e) => e.to_tui_long(),
-            GooseberryEntry::Journal(e) => e.to_tui_long(),
-            GooseberryEntry::Event(e) => e.to_tui_long(),
-            GooseberryEntry::Research(e) => e.to_tui_long(),
+            GooseberryEntry::Task(e) => e.to_tui_long(terminal_width),
+            GooseberryEntry::Journal(e) => e.to_tui_long(terminal_width),
+            GooseberryEntry::Event(e) => e.to_tui_long(terminal_width),
+            GooseberryEntry::Research(e) => e.to_tui_long(terminal_width),
         }
     }
 
@@ -544,7 +545,7 @@ impl GooseberryEntryTrait for TaskEntry {
     }
 
     /// Puts the task state symbol in between the ID and the task
-    fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
+    fn to_tui_short(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
         let mark = if self.done {
             utility::formatting::TaskState::Done
         } else {
@@ -562,8 +563,8 @@ impl GooseberryEntryTrait for TaskEntry {
     }
 
     /// Adds the description to the short version
-    fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
-        let mut styled_text = self.to_tui_short()?;
+    fn to_tui_long(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
+        let mut styled_text = self.to_tui_short(terminal_width)?;
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(
             &self.description.trim(),
         ));
@@ -676,7 +677,7 @@ impl GooseberryEntryTrait for JournalEntry {
     }
 
     /// Short and long return the same thing
-    fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
+    fn to_tui_short(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
             self.id,
             &self.description,
@@ -688,8 +689,8 @@ impl GooseberryEntryTrait for JournalEntry {
         ))
     }
 
-    fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
-        let mut styled_text = self.to_tui_short()?;
+    fn to_tui_long(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
+        let mut styled_text = self.to_tui_short(terminal_width)?;
         styled_text.push(Text::Raw("\n".into()));
         Ok(styled_text)
     }
@@ -803,7 +804,7 @@ impl GooseberryEntryTrait for ResearchEntry {
     /// ID Title
     /// DateTime
     /// Tags
-    fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
+    fn to_tui_short(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
             self.id,
             &self.title,
@@ -816,8 +817,8 @@ impl GooseberryEntryTrait for ResearchEntry {
     }
 
     /// Adds notes to short
-    fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
-        let mut styled_text = self.to_tui_short()?;
+    fn to_tui_long(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
+        let mut styled_text = self.to_tui_short(terminal_width)?;
         styled_text.push(Text::Raw("\n".into()));
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(
             &self.notes.trim(),
@@ -964,7 +965,7 @@ impl GooseberryEntryTrait for EventEntry {
     /// ID Title
     /// DateTime
     /// tags
-    fn to_tui_short(&self) -> Result<Vec<Text>, Error> {
+    fn to_tui_short(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
         Ok(utility::formatting::style_short(
             self.id,
             &self.title,
@@ -980,8 +981,8 @@ impl GooseberryEntryTrait for EventEntry {
     /// People
     ///
     /// Notes
-    fn to_tui_long(&self) -> Result<Vec<Text>, Error> {
-        let mut styled_text = self.to_tui_short()?;
+    fn to_tui_long(&self, terminal_width: u16) -> Result<Vec<Text>, Error> {
+        let mut styled_text = self.to_tui_short(terminal_width)?;
         styled_text.push(utility::formatting::style_people(&self.people));
         styled_text.push(Text::Raw("\n".into()));
         styled_text.extend_from_slice(&utility::formatting::markdown_to_styled_texts(

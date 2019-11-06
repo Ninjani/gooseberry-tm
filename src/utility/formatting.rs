@@ -199,7 +199,7 @@ pub(crate) fn style_short<'a>(
     texts
 }
 
-pub(crate) fn style_date_num_entries<'a>(date: Date<Utc>, num_entries: usize) -> Vec<Text<'a>> {
+pub(crate) fn style_date_num_entries<'a>(date: Date<Utc>, num_entries: usize, terminal_width: u16) -> Vec<Text<'a>> {
     let entry_text = if num_entries > 1 { "entries" } else { "entry" };
     vec![
         Text::styled(
@@ -222,4 +222,25 @@ pub(crate) fn cursor<'a>() -> Text<'a> {
             .fg(CONFIG.cursor_color)
             .modifier(Modifier::BOLD),
     )
+}
+
+/// Adds text to an existing string but on the right. If there's not enough
+/// space in the terminal to do that with at least one space in the middle
+/// then puts the new_text on the next line (left formatted)
+fn right_format(text: &str, new_text: &str, terminal_width: u16) -> String {
+    let terminal_width = terminal_width as usize;
+    if terminal_width < text.len() + new_text.len() + 1 {
+        format!("{}\n{}\n", text, new_text)
+    } else {
+        let num_spaces = terminal_width - text.len() - new_text.len();
+        format!(
+            "{}{}{}\n",
+            text,
+            (0..num_spaces)
+                .map(|_| " ".into())
+                .collect::<Vec<String>>()
+                .join(""),
+            new_text
+        )
+    }
 }
