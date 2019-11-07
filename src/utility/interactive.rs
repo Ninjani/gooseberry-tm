@@ -1,12 +1,15 @@
 use std::{sync::mpsc, thread, time::Duration};
 
+use anyhow::Error;
 use crossterm::{input, InputEvent, KeyEvent};
+use crossterm::TerminalCursor;
 use tui::{
     backend::CrosstermBackend,
     Frame,
     layout::{Constraint, Rect},
     widgets::{Block, Borders, Paragraph, Text, Widget},
 };
+use unicode_width::UnicodeWidthChar;
 
 use crate::app::{HELP_BOX_PERCENT, TAB_BOX_PERCENT};
 use crate::utility;
@@ -31,6 +34,7 @@ pub struct InputBox {
     is_writing: bool,
     /// growing content of the box
     content: String,
+    width: usize,
     /// if true, renders markdown, else plain text
     /// TODO: Probably make this more flexible, e.g. code?
     markdown: bool,
@@ -48,6 +52,7 @@ impl InputBox {
             title,
             is_writing: false,
             content: String::new(),
+            width: 0,
             markdown,
             percent,
             scroll: 0,
@@ -75,14 +80,14 @@ impl InputBox {
     /// Doesn't handle moving around with arrow keys, pretty clunky that way, you have to backspace
     /// TODO: Switch to ropey and keep an index to deal with this^?
     fn get_text(&self) -> Vec<Text> {
-        let mut current = if self.markdown {
+        let current = if self.markdown {
             utility::formatting::markdown_to_styled_texts(&self.content)
         } else {
             vec![Text::raw(&self.content)]
         };
-        if self.is_writing {
-            current.push(utility::formatting::cursor());
-        }
+        //        if self.is_writing {
+        //            current.push(utility::formatting::cursor());
+        //        }
         current
     }
 }
@@ -90,9 +95,7 @@ impl InputBox {
 impl InputBoxes {
     /// Makes a new struct with active box as the first one
     pub fn new(boxes: Vec<InputBox>) -> Self {
-        let mut input_boxes = Self { boxes, index: 0 };
-        input_boxes.start_writing();
-        input_boxes
+        Self { boxes, index: 0 }
     }
 
     /// Renders all the boxes
@@ -102,16 +105,32 @@ impl InputBoxes {
         }
     }
 
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn content_width(&self) -> usize {
+        self.boxes[self.index].width
+    }
+
+    fn move_cursor(&self, chunks: &[Rect], cursor: &mut TerminalCursor) -> Result<(), Error> {
+        let chunk = chunks[self.index];
+        cursor.goto(1 + chunk.x + self.content_width() as u16, 1 + chunk.y)?;
+        cursor.show()?;
+        Ok(())
+    }
     /// Sets the first box to active, and turns the others off (for writing, not rendering)
     /// This should make it so that only one box has the fake cursor
     /// But `\t` seems to break this for some reason
     /// I think the 0.12 release of `crossterm` should fix this as they have Tab as a separate KeyEvent
-    pub fn start_writing(&mut self) {
+    pub fn start_writing(&mut self, chunks: &[Rect], cursor: &mut TerminalCursor) -> Result<(), Error> {
         self.index = 0;
         for i in 0..self.len() {
             self.boxes[i].is_writing = false;
         }
         self.boxes[self.index].is_writing = true;
+        self.move_cursor(chunks, cursor)?;
+        Ok(())
     }
 
     /// Turns off all the boxes for writing
@@ -165,14 +184,16 @@ impl InputBoxes {
     }
 
     /// Go to the next box (wraps around)
-    fn increment_box(&mut self) {
+    fn increment_box(&mut self, chunks: &[Rect], cursor: &mut TerminalCursor) -> Result<(), Error> {
         self.boxes[self.index].is_writing = false;
         self.index = (self.index + 1) % self.len();
         self.boxes[self.index].is_writing = true;
+        self.move_cursor(chunks, cursor)?;
+        Ok(())
     }
 
     /// Go to the previous box (wraps around)
-    fn decrement_box(&mut self) {
+    fn decrement_box(&mut self, chunks: &[Rect], cursor: &mut TerminalCursor) -> Result<(), Error> {
         self.boxes[self.index].is_writing = false;
         if self.index > 0 {
             self.index -= 1;
@@ -180,6 +201,8 @@ impl InputBoxes {
             self.index = self.len() - 1;
         }
         self.boxes[self.index].is_writing = true;
+        self.move_cursor(chunks, cursor)?;
+        Ok(())
     }
 
     /// Handle keyboard input events
@@ -193,37 +216,56 @@ impl InputBoxes {
     /// Esc: pauses writing mode to go back to scrolling mode.
     ///     Pressing n again resumes writing mode at the same state
     /// Returns (a potential new entry to save, an indicator of whether to stop writing mode)
-    pub fn keypress(&mut self, key: KeyEvent) -> (Option<Vec<InputBox>>, bool) {
+    pub fn keypress(
+        &mut self,
+        chunks: &[Rect],
+        cursor: &mut TerminalCursor,
+        key: KeyEvent,
+    ) -> Result<(Option<Vec<InputBox>>, bool), Error> {
         match key {
             KeyEvent::Ctrl(c) => match c {
-                's' => return (Some(self.save()), true),
-                'n' => self.increment_box(),
-                'b' => self.decrement_box(),
+                's' => return Ok((Some(self.save()), true)),
+                'n' => self.increment_box(chunks, cursor)?,
+                'b' => self.decrement_box(chunks, cursor)?,
                 _ => (),
             },
             KeyEvent::Char(c) => {
                 if !self.boxes[self.index].markdown && c == '\n' {
-                    self.increment_box()
+                    self.increment_box(chunks, cursor)?;
                 } else {
-                    self.boxes[self.index].content.push(c)
+                    self.boxes[self.index].content.push(c);
+                    self.boxes[self.index].width += c.width().unwrap_or(0)
                 }
             }
             KeyEvent::Backspace => {
-                self.boxes[self.index].content.pop();
+                let c = self.boxes[self.index].content.pop();
+                if let Some(c) = c {
+                    self.boxes[self.index].width -= c.width().unwrap_or(0)
+                }
             }
+//            KeyEvent::Left => {
+//                cursor.move_left(1);
+//            },
+//            KeyEvent::Right => {
+//                cursor.move_right(1);
+//            },
             KeyEvent::Up => {
                 if self.boxes[self.index].scroll > 0 {
                     self.boxes[self.index].scroll -= 1;
+//                    cursor.move_up(1);
                 }
             }
-            KeyEvent::Down => self.boxes[self.index].scroll += 1,
+            KeyEvent::Down => {
+                self.boxes[self.index].scroll += 1;
+//                cursor.move_down(1);
+            },
             KeyEvent::Esc => {
                 self.stop_writing();
-                return (None, true);
+                return Ok((None, true));
             }
             _ => (),
         }
-        (None, false)
+        Ok((None, false))
     }
 }
 

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::Error;
+use crossterm::cursor;
 use crossterm::KeyEvent;
+use crossterm::TerminalCursor;
 use glob::glob;
 use path_abs::{PathDir, PathFile};
 use tui::{
@@ -14,14 +16,18 @@ use crate::{entry, utility, utility::config::CONFIG};
 use crate::entry::GooseberryEntryTrait;
 use crate::errors::Sorry;
 
+//use tui::Terminal;
+//use unicode_width::UnicodeWidthStr;
+//use std::io::{self, Write};
+
 /// Keyboard shortcuts in scrolling mode
 const HELP_TEXT: &str =
-    "< > : change tabs, ^ v : scroll, n : new entry/resume editing, \
-     e <id>[Enter] : edit entry, \\t : toggle fold, q : quit \nt <id>[Enter] : toggle Task\n";
+    "< > : change tabs, ^ v : scroll\nn : new entry/resume editing, \
+     e <id>[Enter] : edit entry, a <id>[Enter] : archive entry\n\\t : toggle fold\nt <id>[Enter] : toggle Task\nq : quit";
 
 /// Keyboard shortcuts in writing mode
 const WRITING_HELP_TEXT: &str =
-    "Ctrl-n : next box, Ctrl-b : previous box, Ctrl-s : save, Esc : pause writing";
+    "Ctrl-n : next box, Ctrl-b : previous box\nCtrl-s : save, Esc : pause writing";
 
 /// Percentage of the terminal to use for displaying the tab bar (on top)
 pub(crate) const TAB_BOX_PERCENT: u16 = 7;
@@ -76,16 +82,16 @@ impl GooseberryTabs {
     /// left and right arrow keys change the active tab
     /// `q` in scrolling mode returns true (to exit the app)
     /// Everything else is handled by the active tab's keypress function
-    pub fn keypress(&mut self, key: KeyEvent) -> Result<bool, Error> {
+    pub fn keypress(&mut self, terminal_size: Rect, key: KeyEvent) -> Result<bool, Error> {
         if !self.is_writing() {
             match key {
                 KeyEvent::Char('q') => return Ok(true),
                 KeyEvent::Right => self.next(),
                 KeyEvent::Left => self.previous(),
-                _key => self.tabs[self.index].keypress(_key)?,
+                _key => self.tabs[self.index].keypress(terminal_size, _key)?,
             }
         } else {
-            self.tabs[self.index].keypress(key)?;
+            self.tabs[self.index].keypress(terminal_size, key)?;
         }
         Ok(false)
     }
@@ -134,7 +140,13 @@ pub struct GooseberryTab {
     selected_entry: u64,
     /// if editing an entry, this stores the old entry (TODO: add as a field to the `picking_char` enum)
     editing_entry: Option<entry::GooseberryEntry>,
+    cursor: TerminalCursor,
 }
+
+//fn get_cursor(x: u16, y: u16) -> Result<(), Error> {
+//
+//    Ok(())
+//}
 
 impl GooseberryTab {
     /// retrieve entries of a given type from a given folder
@@ -170,11 +182,12 @@ impl GooseberryTab {
             editing_entry: None,
             picking_entry: false,
             picking_char: None,
+            cursor: cursor(),
         })
     }
 
     /// Makes the layout of the terminal based on the mode (writing/scrolling)
-    fn get_layout(&self) -> Layout {
+    fn get_layout(&self, terminal_size: Rect) -> Vec<Rect> {
         let constraints = if self.is_writing {
             self.input_boxes.get_constraints()
         } else {
@@ -188,6 +201,7 @@ impl GooseberryTab {
             .direction(Direction::Vertical)
             .margin(1)
             .constraints(constraints.as_ref())
+            .split(terminal_size)
     }
 
     /// Renders the help box at the bottom with the keyboard shortcuts
@@ -215,15 +229,14 @@ impl GooseberryTab {
     /// Help box
     /// if in writing mode then displays text input boxes
     pub fn render(&self, frame: &mut utility::interactive::TuiFrame, tabs: &mut Tabs<String>) {
-        let size = frame.size();
-        let chunks = self.get_layout().split(size);
+        let chunks = self.get_layout(frame.size());
         tabs.render(frame, chunks[0]);
         Paragraph::new(
             entry::GooseberryEntry::entries_to_styled_texts_same_type(
                 &self.entries,
                 &self.visible_ids,
                 self.fold,
-                frame.size().width - 5
+                frame.size().width - 5,
             )
                 .unwrap()
                 .iter(),
@@ -267,9 +280,13 @@ impl GooseberryTab {
     ///     e/t/d: starts ID entry mode
     ///     0-9: if in ID entry mode, adds the digit to `self.selected_entry`
     ///     `\n`: stops ID entry mode and executes e/t/d
-    pub fn keypress(&mut self, key: KeyEvent) -> Result<(), Error> {
+    pub fn keypress(&mut self, terminal_size: Rect, key: KeyEvent) -> Result<(), Error> {
         if self.is_writing {
-            let (new_entry, stop_writing) = self.input_boxes.keypress(key);
+            let (new_entry, stop_writing) = self.input_boxes.keypress(
+                &self.get_layout(terminal_size)[2..],
+                &mut self.cursor,
+                key,
+            )?;
             if let Some(new_entry) = new_entry {
                 if self.editing_entry.is_some() {
                     self.merge_entry(new_entry)?;
@@ -281,13 +298,15 @@ impl GooseberryTab {
             }
             if stop_writing {
                 self.is_writing = false;
+                self.cursor.hide()?;
             }
         } else {
             match key {
                 KeyEvent::Char(c) => match c {
                     'n' => {
-                        self.input_boxes.start_writing();
                         self.is_writing = true;
+                        self.input_boxes
+                            .start_writing(&self.get_layout(terminal_size)[2..], &mut self.cursor)?;
                     }
                     '\t' => self.toggle_fold(),
                     't' | 'e' | 'd' => {

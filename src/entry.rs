@@ -125,7 +125,7 @@ impl GooseberryEntry {
         entries: &'a HashMap<u64, Self>,
         visible_ids: &'a [u64],
         fold: bool,
-        terminal_width: u16
+        terminal_width: u16,
     ) -> Result<Vec<Text<'a>>, Error> {
         let mut keys = visible_ids.to_vec();
         keys.sort_by(|a, b| entries[a].datetime().cmp(entries[b].datetime()));
@@ -174,11 +174,13 @@ impl GooseberryEntry {
                 for date in dates {
                     let entries = dates_to_entries.get(&date);
                     if let Some(entries) = entries {
-                        styled_texts.push(
-                            utility::formatting::style_date_num_entries(date, entries.len(), terminal_width),
-                        );
+                        styled_texts.push(utility::formatting::style_date_num_entries(
+                            date,
+                            entries.len(),
+                            terminal_width,
+                        ));
                         if !fold {
-//                            styled_texts.push(Text::Raw("\n".into()));
+                            //                            styled_texts.push(Text::Raw("\n".into()));
                             for entry in entries {
                                 styled_texts.extend_from_slice(&entry.to_tui_long(terminal_width)?);
                             }

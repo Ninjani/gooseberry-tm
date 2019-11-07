@@ -42,7 +42,8 @@ fn main() -> Result<(), Error> {
 
         // Handle keyboard input
         if let Ok(utility::interactive::Event::Input(key)) = events.next() {
-            let should_break = gooseberry.keypress(key)?;
+            let size = terminal.get_frame().size();
+            let should_break = gooseberry.keypress(size, key)?;
             if should_break {
                 break;
             }

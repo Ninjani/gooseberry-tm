@@ -128,7 +128,13 @@ fn syntect_to_tui_style(syntect_style: SyntectStyle) -> TuiStyle {
 }
 
 /// Add Style to a title with optional Task state
-fn style_title(id: u64, title: &str, mark: Option<TaskState>, terminal_width: u16, bold: bool) -> Vec<Text> {
+fn style_title(
+    id: u64,
+    title: &str,
+    mark: Option<TaskState>,
+    terminal_width: u16,
+    bold: bool,
+) -> Vec<Text> {
     let mut texts = Vec::new();
     let mut terminal_width = terminal_width;
     if let Some(state) = mark {
@@ -167,7 +173,13 @@ pub(crate) fn style_people(people: &[String]) -> Text {
 }
 
 /// Style datetime and tags on same line, tags on left, date on right
-fn style_datetime_tags<'a>(datetime: &'a DateTime<Utc>, tags: &'a [String], terminal_width: u16, date_only: bool, time_only: bool) -> Text<'a> {
+fn style_datetime_tags<'a>(
+    datetime: &'a DateTime<Utc>,
+    tags: &'a [String],
+    terminal_width: u16,
+    date_only: bool,
+    time_only: bool,
+) -> Text<'a> {
     let datetime_formatted = if date_only {
         format_date(datetime.date())
     } else if time_only {
@@ -185,6 +197,7 @@ fn style_datetime_tags<'a>(datetime: &'a DateTime<Utc>, tags: &'a [String], term
 /// ID <task state> Title
 /// Date Time
 /// Tags
+/// TODO: this is getting ugly, make some format structs
 pub(crate) fn style_short<'a>(
     id: u64,
     title: &'a str,
@@ -194,22 +207,41 @@ pub(crate) fn style_short<'a>(
     terminal_width: u16,
     date_only: bool,
     time_only: bool,
-    bold_title: bool
+    bold_title: bool,
 ) -> Vec<Text<'a>> {
     let mut texts = style_title(id, title, mark, terminal_width, bold_title);
-    texts.push(style_datetime_tags(datetime, tags, terminal_width, date_only, time_only));
+    texts.push(style_datetime_tags(
+        datetime,
+        tags,
+        terminal_width,
+        date_only,
+        time_only,
+    ));
     texts
 }
 
-pub(crate) fn style_date_num_entries<'a>(date: Date<Utc>, num_entries: usize, terminal_width: u16) -> Text<'a> {
+pub(crate) fn style_date_num_entries<'a>(
+    date: Date<Utc>,
+    num_entries: usize,
+    terminal_width: u16,
+) -> Text<'a> {
     let entry_text = if num_entries > 1 { "entries" } else { "entry" };
-    Text::styled(right_format(&format_date(date),
-                              &format!("{} {}", num_entries, entry_text), terminal_width, true),
-                 TuiStyle::default().fg(CONFIG.secondary_metadata_color).modifier(Modifier::BOLD))
+    Text::styled(
+        right_format(
+            &format_date(date),
+            &format!("{} {}", num_entries, entry_text),
+            terminal_width,
+            true,
+        ),
+        TuiStyle::default()
+            .fg(CONFIG.secondary_metadata_color)
+            .modifier(Modifier::BOLD),
+    )
 }
 
 /// Add a fake cursor
 /// Couldn't figure out how to get the real cursor where we need it
+/// TODO: this probably won't work (i.e. will break up words) if you add arrow key movement
 pub(crate) fn cursor<'a>() -> Text<'a> {
     Text::Styled(
         CONFIG.cursor_char.to_string().into(),
@@ -219,20 +251,23 @@ pub(crate) fn cursor<'a>() -> Text<'a> {
     )
 }
 
-/// Adds text to an existing string but on the right. If there's not enough
+/// Adds new_text to an existing text but on the right. If there's not enough
 /// space in the terminal to do that with at least one space in the middle
 /// then puts the new_text on the next line (on the left if left_too_long else right)
 fn right_format(text: &str, new_text: &str, terminal_width: u16, left_too_long: bool) -> String {
     let terminal_width = terminal_width as usize;
-    let text_len = UnicodeWidthStr::width(text);
-    let new_text_len = UnicodeWidthStr::width(new_text);
+    let text_len = text.width();
+    let new_text_len = new_text.width();
     if terminal_width < text_len + new_text_len + 1 {
         if left_too_long {
             format!("{}\n{}\n", text, new_text)
         } else {
-            format!("{}\n{}", text, right_format("", new_text, terminal_width as u16, true))
+            format!(
+                "{}\n{}",
+                text,
+                right_format("", new_text, terminal_width as u16, true)
+            )
         }
-
     } else {
         let num_spaces = terminal_width - text_len - new_text_len;
         format!(
